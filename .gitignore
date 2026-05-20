@@ -5,3 +5,7 @@ node_modules/
 lsdepot/
 .beads/
 .DS_Store
+ROADMAP.md
+.claude
+TODO.md
+MIGRATION.md

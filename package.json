@@ -25,7 +25,13 @@
     "onCommand:julia.createNewFile",
     "onCommand:julia.selectInterpreter",
     "onCommand:julia.runFile",
-    "onCommand:julia.runSelection"
+    "onCommand:julia.runSelection",
+    "onCommand:julia.restartLanguageServer",
+    "onCommand:julia.refreshLanguageServer",
+    "onCommand:julia.interrupt",
+    "onCommand:julia.changeCurrentEnvironment",
+    "onCommand:julia.executeCell",
+    "onCommand:julia.executeCellAndMove"
   ],
   "contributes": {
     "languageRuntimes": [
@@ -113,6 +119,49 @@
         "command": "julia.runSelection",
         "category": "Julia",
         "title": "Run Selection"
+      },
+      {
+        "command": "julia.restartLanguageServer",
+        "category": "Julia",
+        "title": "Restart Language Server"
+      },
+      {
+        "command": "julia.refreshLanguageServer",
+        "category": "Julia",
+        "title": "Refresh Language Server"
+      },
+      {
+        "command": "julia.interrupt",
+        "category": "Julia",
+        "title": "Interrupt Julia Execution",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "julia.changeCurrentEnvironment",
+        "category": "Julia",
+        "title": "Change Current Environment"
+      },
+      {
+        "command": "julia.executeCell",
+        "category": "Julia",
+        "title": "Execute Code Cell"
+      },
+      {
+        "command": "julia.executeCellAndMove",
+        "category": "Julia",
+        "title": "Execute Code Cell and Move to Next"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "julia.executeCell",
+        "key": "ctrl+shift+enter",
+        "when": "editorLangId == julia && editorTextFocus"
+      },
+      {
+        "command": "julia.executeCellAndMove",
+        "key": "alt+shift+enter",
+        "when": "editorLangId == julia && editorTextFocus"
       }
     ],
     "configuration": {
@@ -153,6 +202,141 @@
           "type": "boolean",
           "default": true,
           "description": "Enable semantic highlighting for string tokens."
+        },
+        "julia.NumThreads": {
+          "type": ["integer", "string", "null"],
+          "default": null,
+          "scope": "machine-overridable",
+          "markdownDescription": "Number of threads to use for Julia processes. Set to `auto` to let Julia decide, or `null` to use the environment default."
+        },
+        "julia.additionalArgs": {
+          "type": "array",
+          "default": [],
+          "items": { "type": "string" },
+          "description": "Additional Julia command-line arguments passed when starting the kernel."
+        },
+        "julia.packageServer": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "Julia package server URL. Sets `JULIA_PKG_SERVER` before starting Julia. Leave empty to use the default."
+        },
+        "julia.trace.server": {
+          "type": "string",
+          "default": "off",
+          "enum": ["off", "messages", "verbose"],
+          "enumDescriptions": [
+            "No tracing",
+            "Log LSP message types",
+            "Log full LSP message content"
+          ],
+          "scope": "window",
+          "description": "Traces the communication between the extension and the Julia Language Server."
+        },
+        "julia.lint.run": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run the linter on active Julia files."
+        },
+        "julia.lint.call": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check calls against method signatures."
+        },
+        "julia.lint.iter": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check for non-iterable values used in iteration."
+        },
+        "julia.lint.nothingcomp": {
+          "type": "boolean",
+          "default": false,
+          "description": "Check for comparisons to `nothing`."
+        },
+        "julia.lint.constif": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check for constant conditionals in `if` statements."
+        },
+        "julia.lint.lazy": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check for lazy boolean operator usage."
+        },
+        "julia.lint.datadecl": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check for type declarations in `struct` fields."
+        },
+        "julia.lint.typeparam": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check for unused type parameters."
+        },
+        "julia.lint.modname": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check for module name conflicts."
+        },
+        "julia.lint.pirates": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check for type piracy."
+        },
+        "julia.lint.useoffuncargs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check that all function arguments are used."
+        },
+        "julia.lint.disabledDirs": {
+          "type": "array",
+          "default": ["docs", "test"],
+          "items": { "type": "string" },
+          "description": "Directories to exclude from linting."
+        },
+        "julia.completionmode": {
+          "type": "string",
+          "default": "qualify",
+          "enum": ["exportedonly", "import", "qualify"],
+          "enumDescriptions": [
+            "Show only exported names",
+            "Auto-insert `import` for unexported names",
+            "Complete to fully qualified name (e.g. Base.sort)"
+          ],
+          "scope": "window",
+          "description": "Controls how unexported symbols are handled in completions."
+        },
+        "julia.useRevise": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically load Revise.jl when a Julia session starts."
+        },
+        "julia.cellDelimiters": {
+          "type": "array",
+          "default": ["^\\s?#\\s#+", "^##(?!#)", "^#(\\s?)%%", "^#-"],
+          "items": { "type": "string" },
+          "description": "Regular expressions used to detect code cell boundaries in Julia files."
+        },
+        "julia.inlayHints.static.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable static inlay hints (type annotations, parameter names) from the language server."
+        },
+        "julia.inlayHints.static.variableTypes.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inferred type hints next to variable definitions."
+        },
+        "julia.inlayHints.static.parameterNames.enabled": {
+          "type": "string",
+          "default": "literals",
+          "enum": ["none", "literals", "all"],
+          "enumDescriptions": [
+            "No parameter name hints",
+            "Show hints for literal arguments only",
+            "Show hints for all arguments"
+          ],
+          "description": "Show parameter name hints for function calls."
         }
       }
     },

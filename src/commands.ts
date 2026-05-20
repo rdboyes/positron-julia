@@ -7,7 +7,7 @@ import * as vscode from "vscode";
 import * as positron from "positron";
 
 import { JuliaRuntimeManager } from "./runtime-manager";
-import { LOGGER } from "./extension";
+import { LOGGER, getLanguageClient, restartLanguageServer } from "./extension";
 
 const JULIA_LANGUAGE_ID = "julia";
 const JULIA_RUN_FILE_COMMAND = "julia.runFile";
@@ -83,7 +83,7 @@ async function runSelection(editor: vscode.TextEditor): Promise<void> {
  */
 export function registerCommands(
   context: vscode.ExtensionContext,
-  _runtimeManager: JuliaRuntimeManager,
+  runtimeManager: JuliaRuntimeManager,
 ): void {
   const runFileCommand = async () => {
     const editor = vscode.window.activeTextEditor;
@@ -148,5 +148,39 @@ export function registerCommands(
       JULIA_RUN_SELECTION_COMMAND,
       runSelectionCommand,
     ),
+  );
+
+  // Restart the Julia Language Server
+  context.subscriptions.push(
+    vscode.commands.registerCommand("julia.restartLanguageServer", async () => {
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Window, title: "Restarting Julia Language Server..." },
+        () => restartLanguageServer()
+      );
+    }),
+  );
+
+  // Re-index the Julia Language Server cache
+  context.subscriptions.push(
+    vscode.commands.registerCommand("julia.refreshLanguageServer", async () => {
+      const client = getLanguageClient();
+      if (!client?.isRunning()) {
+        vscode.window.showWarningMessage("Julia Language Server is not running");
+        return;
+      }
+      await client.sendLSNotification("julia/refreshLanguageServer");
+    }),
+  );
+
+  // Interrupt a running Julia computation
+  context.subscriptions.push(
+    vscode.commands.registerCommand("julia.interrupt", async () => {
+      const session = runtimeManager.getActiveJuliaSession();
+      if (!session) {
+        vscode.window.showWarningMessage("No active Julia session");
+        return;
+      }
+      await session.interrupt();
+    }),
   );
 }

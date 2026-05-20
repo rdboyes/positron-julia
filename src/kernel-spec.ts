@@ -14,12 +14,22 @@ import { LOGGER } from './extension';
  * Creates a Jupyter kernel spec for launching Julia with IJulia.
  *
  * @param installation The Julia installation to create a kernel spec for.
+ * @param userProjectPath Optional path to the user's Julia project to activate after bootstrapping.
  * @returns A JupyterKernelSpec for the Julia installation.
  */
-export function createJuliaKernelSpec(installation: JuliaInstallation): JupyterKernelSpec {
+export function createJuliaKernelSpec(installation: JuliaInstallation, userProjectPath?: string): JupyterKernelSpec {
 	// Get the log level from configuration
-	const config = vscode.workspace.getConfiguration('positron.julia.kernel');
-	const logLevel = config.get<string>('logLevel', 'warn');
+	const kernelConfig = vscode.workspace.getConfiguration('positron.julia.kernel');
+	const logLevel = kernelConfig.get<string>('logLevel', 'warn');
+
+	// Get Julia-specific user settings
+	const juliaConfig = vscode.workspace.getConfiguration('julia');
+	const numThreadsSetting = juliaConfig.get<number | string | null>('NumThreads', null);
+	const numThreads = numThreadsSetting !== null && numThreadsSetting !== undefined
+		? String(numThreadsSetting)
+		: (process.env.JULIA_NUM_THREADS || 'auto');
+	const additionalArgs = juliaConfig.get<string[]>('additionalArgs', []);
+	const packageServer = juliaConfig.get<string>('packageServer', '').trim();
 
 	// Build the kernel arguments
 	// The {connection_file} and {log_file} placeholders are replaced by the supervisor
@@ -28,6 +38,7 @@ export function createJuliaKernelSpec(installation: JuliaInstallation): JupyterK
 		installation.binpath,
 		'-i',  // Interactive mode
 		'--color=yes',
+		...additionalArgs,
 		'-e',
 		getKernelStartupCode(),
 		'{connection_file}',
@@ -38,7 +49,7 @@ export function createJuliaKernelSpec(installation: JuliaInstallation): JupyterK
 	// Build environment variables
 	const env: NodeJS.ProcessEnv = {
 		// Julia-specific environment variables
-		JULIA_NUM_THREADS: process.env.JULIA_NUM_THREADS || 'auto',
+		JULIA_NUM_THREADS: numThreads,
 		JULIA_COLORS: 'yes',
 
 		// Positron-specific environment variables
@@ -50,8 +61,16 @@ export function createJuliaKernelSpec(installation: JuliaInstallation): JupyterK
 		JULIA_DEBUG: logLevel === 'trace' || logLevel === 'debug' ? 'all' : '',
 	};
 
+	if (packageServer) {
+		env['JULIA_PKG_SERVER'] = packageServer;
+	}
+
+	if (userProjectPath) {
+		env['POSITRON_USER_PROJECT'] = userProjectPath;
+	}
+
 	// Add any user-configured environment variables
-	const userEnv = config.get<Record<string, string>>('env', {});
+	const userEnv = kernelConfig.get<Record<string, string>>('env', {});
 	Object.assign(env, userEnv);
 
 	LOGGER.debug(`Creating kernel spec for Julia ${installation.version}`);
@@ -140,6 +159,14 @@ function getKernelStartupCode(): string {
 			Positron.start_services!();
 		catch e
 			@warn "Failed to load Positron.jl services" exception=e;
+		end;
+		let user_project = get(ENV, "POSITRON_USER_PROJECT", "")
+			if !isempty(user_project) && (
+				isfile(joinpath(user_project, "Project.toml")) ||
+				isfile(joinpath(user_project, "JuliaProject.toml"))
+			)
+				Pkg.activate(user_project)
+			end
 		end;
 		IJulia.run_kernel();
 		exit()

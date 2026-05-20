@@ -106,6 +106,22 @@ export class JuliaSession implements positron.LanguageRuntimeSession, vscode.Dis
 		return `${banner}\n\n`;
 	}
 
+	private _loadReviseIfEnabled(): void {
+		if (!vscode.workspace.getConfiguration('julia').get<boolean>('useRevise', true)) {
+			return;
+		}
+		if (!this._kernel) {
+			return;
+		}
+		this._kernel.execute(
+			`try; @eval import Revise; catch; end`,
+			`revise-autoload-${Date.now()}`,
+			positron.RuntimeCodeExecutionMode.Silent,
+			positron.RuntimeErrorBehavior.Continue
+		);
+		LOGGER.debug('Revise.jl auto-load attempted');
+	}
+
 	dispose(): void {
 		this._rawMessageEmitter.dispose();
 		this._messageEmitter.dispose();
@@ -164,6 +180,7 @@ export class JuliaSession implements positron.LanguageRuntimeSession, vscode.Dis
 				this._packageManager.onRuntimeReady().catch((error) => {
 					LOGGER.warn(`Failed to initialize Julia package helpers: ${error}`);
 				});
+				this._loadReviseIfEnabled();
 			}
 		});
 

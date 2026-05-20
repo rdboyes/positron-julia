@@ -15,11 +15,26 @@ import { registerCompletionProvider } from './completions';
 import { registerStatementRangeProvider } from './statement-range';
 import { registerSemanticTokensProvider } from './semantic-highlighting';
 import { registerHelpTopicProvider } from './help';
+import { registerCellCommands } from './cells';
+import { JuliaEnvironmentManager } from './environment';
 
 export const LOGGER = vscode.window.createOutputChannel('Julia Language Pack', { log: true });
 
 let languageClient: JuliaLanguageClient | undefined;
 let languageServerStarting: Promise<void> | undefined;
+let _context: vscode.ExtensionContext | undefined;
+
+export function getLanguageClient(): JuliaLanguageClient | undefined {
+	return languageClient;
+}
+
+export async function restartLanguageServer(): Promise<void> {
+	if (!_context) {
+		return;
+	}
+	await disposeLanguageClient();
+	await startLanguageServer(_context);
+}
 
 async function disposeLanguageClient(): Promise<void> {
 	if (!languageClient) {
@@ -43,6 +58,7 @@ async function disposeLanguageClient(): Promise<void> {
 }
 
 export async function activate(context: vscode.ExtensionContext) {
+	_context = context;
 	const onDidChangeLogLevel = (logLevel: vscode.LogLevel) => {
 		LOGGER.appendLine(vscode.l10n.t('Log level: {0}', vscode.LogLevel[logLevel]));
 	};
@@ -69,6 +85,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	// Register help topic provider (F1 / Help pane lookup at cursor)
 	context.subscriptions.push(registerHelpTopicProvider(() => languageClient));
+
+	// Register code cell execution commands (# %% / ## delimiters)
+	registerCellCommands(context);
+
+	// Environment status bar and switching
+	const environmentManager = new JuliaEnvironmentManager();
+	environmentManager.activate(context, getLanguageClient, () => juliaRuntimeManager.getActiveJuliaSession());
 
 	// Start language server when a Julia file is opened
 	// Also check if any Julia files are already open (e.g., after reload)
@@ -111,6 +134,29 @@ export async function activate(context: vscode.ExtensionContext) {
 			LOGGER.warn(`Language server not started: ${error.message}`);
 		});
 	}
+
+	// Notify users when kernel-affecting settings change (only take effect on next session)
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration((event) => {
+			const kernelSettings = ['julia.NumThreads', 'julia.additionalArgs', 'julia.packageServer'];
+			if (kernelSettings.some(s => event.affectsConfiguration(s))) {
+				vscode.window.showInformationMessage(
+					'Julia: Restart the Julia session to apply the updated settings.'
+				);
+			}
+			// Restart LS when inlay hint settings change (they're passed at initialization time)
+			const lsInitSettings = [
+				'julia.inlayHints.static.enabled',
+				'julia.inlayHints.static.variableTypes.enabled',
+				'julia.inlayHints.static.parameterNames.enabled',
+			];
+			if (lsInitSettings.some(s => event.affectsConfiguration(s))) {
+				restartLanguageServer().catch(err => {
+					LOGGER.warn(`Failed to restart Language Server after settings change: ${err}`);
+				});
+			}
+		})
+	);
 
 	LOGGER.info('Positron Julia extension activated');
 }

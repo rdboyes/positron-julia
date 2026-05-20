@@ -33,6 +33,16 @@ export class JuliaRuntimeManager implements positron.LanguageRuntimeManager {
 	/** Map of runtime ID to Julia installation */
 	private readonly _installations = new Map<string, JuliaInstallation>();
 
+	/** Map of session ID to active JuliaSession (for interrupt etc.) */
+	private readonly _activeSessions = new Map<string, JuliaSession>();
+
+	getActiveJuliaSession(): JuliaSession | undefined {
+		for (const session of this._activeSessions.values()) {
+			return session;
+		}
+		return undefined;
+	}
+
 	/** Recommended runtime for the current workspace */
 	private _recommendedRuntime: positron.LanguageRuntimeMetadata | undefined;
 
@@ -110,17 +120,29 @@ export class JuliaRuntimeManager implements positron.LanguageRuntimeManager {
 		// This handles switching between Julia versions gracefully
 		await ensureLanguageServerForVersion(installation, this._context);
 
+		// Resolve the user's Julia project path: prefer an explicitly saved config
+		// value (set when the user switches environments via the status bar), then
+		// fall back to the first workspace folder so Julia can auto-detect a
+		// Project.toml there.
+		const positronJuliaConfig = vscode.workspace.getConfiguration('positron.julia');
+		const userProjectPath =
+			positronJuliaConfig.get<string>('languageServer.environmentPath') ||
+			vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
 		// Create the kernel spec for a new session
-		const kernelSpec = createJuliaKernelSpec(installation);
+		const kernelSpec = createJuliaKernelSpec(installation, userProjectPath);
 
 		LOGGER.info(`Creating Julia session for ${runtimeMetadata.runtimeName}`);
-		return new JuliaSession(
+		const session = new JuliaSession(
 			runtimeMetadata,
 			sessionMetadata,
 			installation,
 			this._context.extensionPath,
 			kernelSpec
 		);
+		this._activeSessions.set(sessionMetadata.sessionId, session);
+		session.onDidEndSession(() => this._activeSessions.delete(sessionMetadata.sessionId));
+		return session;
 	}
 
 	/**
@@ -141,7 +163,7 @@ export class JuliaRuntimeManager implements positron.LanguageRuntimeManager {
 
 		LOGGER.info(`Restoring Julia session for ${runtimeMetadata.runtimeName}`);
 		// Don't pass kernelSpec so the session will reconnect to the existing kernel
-		return new JuliaSession(
+		const session = new JuliaSession(
 			runtimeMetadata,
 			sessionMetadata,
 			installation,
@@ -149,6 +171,9 @@ export class JuliaRuntimeManager implements positron.LanguageRuntimeManager {
 			undefined,  // No kernel spec for restore
 			sessionName
 		);
+		this._activeSessions.set(sessionMetadata.sessionId, session);
+		session.onDidEndSession(() => this._activeSessions.delete(sessionMetadata.sessionId));
+		return session;
 	}
 
 	/**

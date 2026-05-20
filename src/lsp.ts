@@ -11,6 +11,7 @@ import {
 	LanguageClient,
 	LanguageClientOptions,
 	ServerOptions,
+	Trace,
 	TransportKind
 } from 'vscode-languageclient/node';
 
@@ -112,6 +113,24 @@ export class JuliaLanguageClient implements vscode.Disposable {
 		return {
 			path: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd(),
 			reason: 'workspace root fallback',
+		};
+	}
+
+	private _buildInitializationOptions(): object {
+		const cfg = vscode.workspace.getConfiguration('julia');
+		return {
+			julialangTestItemProvider: false,
+			inlayHints: {
+				static: {
+					enabled: cfg.get<boolean>('inlayHints.static.enabled', false),
+					variableTypes: {
+						enabled: cfg.get<boolean>('inlayHints.static.variableTypes.enabled', true),
+					},
+					parameterNames: {
+						enabled: cfg.get<string>('inlayHints.static.parameterNames.enabled', 'literals'),
+					},
+				},
+			},
 		};
 	}
 
@@ -312,9 +331,7 @@ export class JuliaLanguageClient implements vscode.Disposable {
 			// Help the language server find environments in subdirectories
 			workspaceFolder: vscode.workspace.workspaceFolders?.[0],
 			// Initialization options to configure LanguageServer.jl behavior
-			initializationOptions: {
-				julialangTestItemProvider: false,
-			},
+			initializationOptions: this._buildInitializationOptions(),
 		};
 
 		// Create and start the client
@@ -325,6 +342,12 @@ export class JuliaLanguageClient implements vscode.Disposable {
 			serverOptions,
 			clientOptions
 		);
+
+		// Apply trace level from configuration
+		const traceLevel = vscode.workspace.getConfiguration('julia').get<string>('trace.server', 'off');
+		if (traceLevel !== 'off') {
+			this._client.setTrace(traceLevel === 'verbose' ? Trace.Verbose : Trace.Messages);
+		}
 
 		// Remove ExecuteCommandFeature to prevent command registration conflicts
 		// The LanguageServer.jl provides commands like 'UpdateDocstringSignature' that may
@@ -475,6 +498,16 @@ export class JuliaLanguageClient implements vscode.Disposable {
 		}
 
 		return undefined;
+	}
+
+	/**
+	 * Sends a notification to the language server.
+	 */
+	async sendLSNotification(method: string, params?: object): Promise<void> {
+		if (!this._client?.isRunning()) {
+			return;
+		}
+		await this._client.sendNotification(method, params);
 	}
 
 	dispose(): void {
