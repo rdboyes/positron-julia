@@ -31,7 +31,9 @@
     "onCommand:julia.interrupt",
     "onCommand:julia.changeCurrentEnvironment",
     "onCommand:julia.executeCell",
-    "onCommand:julia.executeCellAndMove"
+    "onCommand:julia.executeCellAndMove",
+    "onCommand:julia.stopTestProcess",
+    "onCommand:julia.stopTestController"
   ],
   "contributes": {
     "languageRuntimes": [
@@ -150,6 +152,18 @@
         "command": "julia.executeCellAndMove",
         "category": "Julia",
         "title": "Execute Code Cell and Move to Next"
+      },
+      {
+        "command": "julia.stopTestProcess",
+        "category": "Julia",
+        "title": "Stop Test Process",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "julia.stopTestController",
+        "category": "Julia",
+        "title": "Stop Test Controller",
+        "icon": "$(debug-stop)"
       }
     ],
     "keybindings": [
@@ -310,6 +324,12 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically load Revise.jl when a Julia session starts."
+        },
+        "julia.numTestProcesses": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Number of Julia processes for running tests in parallel (0 = auto, one per CPU core)."
         },
         "julia.cellDelimiters": {
           "type": "array",

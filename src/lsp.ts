@@ -119,7 +119,7 @@ export class JuliaLanguageClient implements vscode.Disposable {
 	private _buildInitializationOptions(): object {
 		const cfg = vscode.workspace.getConfiguration('julia');
 		return {
-			julialangTestItemProvider: false,
+			julialangTestItemProvider: true,
 			inlayHints: {
 				static: {
 					enabled: cfg.get<boolean>('inlayHints.static.enabled', false),
@@ -218,8 +218,12 @@ export class JuliaLanguageClient implements vscode.Disposable {
 	/**
 	 * Starts the language server with the given Julia installation.
 	 * Automatically installs LanguageServer.jl if not present.
+	 *
+	 * @param onClientCreated Optional callback invoked with the inner LanguageClient right after
+	 *   it is constructed but before it is started. Use this to register notification/request
+	 *   handlers that must be active from the very first message (e.g. julia/publishTests).
 	 */
-	async start(installation: JuliaInstallation, preferredFilePath?: string): Promise<void> {
+	async start(installation: JuliaInstallation, preferredFilePath?: string, onClientCreated?: (client: LanguageClient) => void): Promise<void> {
 		if (this._client) {
 			LOGGER.info('Language server already running');
 			return;
@@ -352,6 +356,12 @@ export class JuliaLanguageClient implements vscode.Disposable {
 			clientOptions
 		);
 
+		// Allow callers to register notification/request handlers before the client
+		// starts, so no messages are missed during the initialization phase.
+		if (onClientCreated) {
+			onClientCreated(this._client);
+		}
+
 		// Apply trace level from configuration
 		const traceLevel = vscode.workspace.getConfiguration('julia').get<string>('trace.server', 'off');
 		if (traceLevel !== 'off') {
@@ -460,6 +470,14 @@ export class JuliaLanguageClient implements vscode.Disposable {
 
 	getEnvironmentPath(): string | undefined {
 		return this._environmentPath;
+	}
+
+	/**
+	 * Returns the underlying LanguageClient, or undefined if not started.
+	 * Used by features that need to send requests directly (e.g., test explorer).
+	 */
+	get innerClient(): LanguageClient | undefined {
+		return this._client;
 	}
 
 	/**

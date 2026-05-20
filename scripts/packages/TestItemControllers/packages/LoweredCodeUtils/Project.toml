@@ -1,0 +1,22 @@
+name = "LoweredCodeUtils"
+uuid = "6f1432cf-f94c-5a45-995e-cdbf5db27b0b"
+version = "3.4.2"
+authors = ["Tim Holy <tim.holy@gmail.com>"]
+
+[deps]
+Compiler = "807dbc54-b67e-4c79-8afb-eafe4df6f2e1"
+JuliaInterpreter = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
+
+[compat]
+Compiler = "0.1"
+JuliaInterpreter = "0.10"
+julia = "1.10"
+
+[extras]
+InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
+Parameters = "d96e819e-fc66-5662-9728-84c9c7592b0a"
+Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["InteractiveUtils", "Parameters", "Pkg", "Test"]

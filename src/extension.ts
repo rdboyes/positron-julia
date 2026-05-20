@@ -17,12 +17,15 @@ import { registerSemanticTokensProvider } from './semantic-highlighting';
 import { registerHelpTopicProvider } from './help';
 import { registerCellCommands } from './cells';
 import { JuliaEnvironmentManager } from './environment';
+import { TestFeature } from './testing/testFeature';
+import { notifyTypeTextDocumentPublishTests } from './testing/testLSProtocol';
 
 export const LOGGER = vscode.window.createOutputChannel('Julia Language Pack', { log: true });
 
 let languageClient: JuliaLanguageClient | undefined;
 let languageServerStarting: Promise<void> | undefined;
 let _context: vscode.ExtensionContext | undefined;
+let _testFeature: import('./testing/testFeature').TestFeature | undefined;
 
 export function getLanguageClient(): JuliaLanguageClient | undefined {
 	return languageClient;
@@ -92,6 +95,14 @@ export async function activate(context: vscode.ExtensionContext) {
 	// Environment status bar and switching
 	const environmentManager = new JuliaEnvironmentManager();
 	environmentManager.activate(context, getLanguageClient, () => juliaRuntimeManager.getActiveJuliaSession());
+
+	// Test Explorer — discovers @testitem blocks via the LS and runs them via a Julia subprocess
+	_testFeature = new TestFeature(
+		context,
+		juliaRuntimeManager,
+		() => languageClient?.innerClient
+	);
+	context.subscriptions.push(_testFeature);
 
 	// Start language server when a Julia file is opened
 	// Also check if any Julia files are already open (e.g., after reload)
@@ -231,7 +242,17 @@ async function doStartLanguageServer(
 	context.subscriptions.push(languageClient);
 
 	try {
-		await languageClient.start(installation, preferredFilePath);
+		await languageClient.start(installation, preferredFilePath, (client) => {
+			// Register julia/publishTests BEFORE the client starts so we never
+			// miss notifications sent during the initialization phase.
+			if (_testFeature) {
+				LOGGER.info('Registering julia/publishTests notification handler');
+				client.onNotification(notifyTypeTextDocumentPublishTests, params => {
+					LOGGER.debug(`julia/publishTests received for ${params.uri} (${params.testItemDetails.length} items)`);
+					_testFeature!.publishTestsHandler(params);
+				});
+			}
+		});
 		LOGGER.info('Julia Language Server started successfully');
 	} catch (error) {
 		LOGGER.error(`Failed to start language server: ${error}`);
