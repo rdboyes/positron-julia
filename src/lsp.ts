@@ -296,12 +296,21 @@ export class JuliaLanguageClient implements vscode.Disposable {
 			serverEnv.SSH_KNOWN_HOSTS_FILES = '';
 		}
 
+		// For Julia 1.10+, tell the LS never to create new precompiled caches.
+		// Without this, the LS and the kernel both try to precompile the same
+		// user packages into ~/.julia/compiled/ at the same time, and the kernel
+		// hangs waiting for the LS's lock (and may crash when it finally gets it).
+		const compiledModulesArg = installation.semVersion.minor >= 10
+			? ['--compiled-modules=existing']
+			: [];
+
 		const serverOptions: ServerOptions = {
 			command: installation.binpath,
 			args: [
 				'--startup-file=no',
 				'--history-file=no',
 				'--depwarn=no',
+				...compiledModulesArg,
 				serverScript,
 				workspaceFolder
 			],
