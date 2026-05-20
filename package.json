@@ -1,0 +1,213 @@
+{
+  "name": "positron-julia",
+  "displayName": "Julia for Positron",
+  "description": "Julia language support for Positron IDE",
+  "version": "0.1.0",
+  "publisher": "ntluong95",
+  "license": "SEE LICENSE IN LICENSE",
+  "private": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ntluong95/positron-julia"
+  },
+  "engines": {
+    "vscode": "^1.99.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Data Science"
+  ],
+  "main": "./out/extension.js",
+  "icon": "./resources/branding/julia-logo.png",
+  "activationEvents": [
+    "onLanguageRuntime:julia",
+    "onLanguage:julia",
+    "onCommand:julia.createNewFile",
+    "onCommand:julia.selectInterpreter",
+    "onCommand:julia.runFile",
+    "onCommand:julia.runSelection"
+  ],
+  "contributes": {
+    "languageRuntimes": [
+      {
+        "languageId": "julia"
+      }
+    ],
+    "languages": [
+      {
+        "id": "julia",
+        "extensions": [
+          ".jl"
+        ],
+        "aliases": [
+          "Julia",
+          "julia"
+        ],
+        "configuration": "./language-configuration/julia-language-configuration.json"
+      },
+      {
+        "id": "julia-markdown",
+        "extensions": [
+          ".jmd"
+        ],
+        "aliases": [
+          "Julia Markdown",
+          "julia markdown"
+        ]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "julia",
+        "scopeName": "source.julia",
+        "path": "./syntaxes/julia_vscode.json"
+      },
+      {
+        "language": "julia-markdown",
+        "scopeName": "text.html.markdown.julia",
+        "path": "./syntaxes/juliamarkdown.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.julia": "julia"
+        }
+      },
+      {
+        "scopeName": "markdown.julia.codeblock",
+        "path": "./syntaxes/juliacodeblock.json",
+        "injectTo": [
+          "text.html.markdown",
+          "text.html.markdown.julia"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.julia": "julia"
+        }
+      },
+      {
+        "scopeName": "source.docstring.julia",
+        "path": "./syntaxes/juliadocstring.json",
+        "injectTo": [
+          "source.julia"
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.julia": "julia"
+        }
+      }
+    ],
+    "commands": [
+      {
+        "command": "julia.createNewFile",
+        "category": "Julia",
+        "title": "New Julia File"
+      },
+      {
+        "command": "julia.selectInterpreter",
+        "category": "Julia",
+        "title": "Select Julia Interpreter"
+      },
+      {
+        "command": "julia.runFile",
+        "category": "Julia",
+        "title": "Run File",
+        "icon": "$(play)"
+      },
+      {
+        "command": "julia.runSelection",
+        "category": "Julia",
+        "title": "Run Selection"
+      }
+    ],
+    "configuration": {
+      "title": "Julia",
+      "properties": {
+        "positron.julia.executablePath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the Julia executable, or a juliaup channel name (e.g. `1.10`, `lts`, `release`). When set in workspace settings (`.vscode/settings.json`), this pins the project to a specific Julia version. Leave empty to use the system default.",
+          "scope": "window"
+        },
+        "julia.lint.missingrefs": {
+          "type": "string",
+          "enum": [
+            "all",
+            "id",
+            "none"
+          ],
+          "default": "all",
+          "description": "Controls missing-reference diagnostics from the Julia Language Server."
+        },
+        "positron.julia.languageServer.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Julia Language Server diagnostics and completions."
+        },
+        "positron.julia.languageServer.environmentPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to a Julia project environment for Language Server analysis."
+        },
+        "positron.julia.semanticHighlighting.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable semantic highlighting for Julia files."
+        },
+        "positron.julia.semanticHighlighting.string.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable semantic highlighting for string tokens."
+        }
+      }
+    },
+    "menus": {
+      "file/newFile": [
+        {
+          "command": "julia.createNewFile",
+          "group": "file",
+          "when": "!virtualWorkspace"
+        }
+      ],
+      "editor/title/run": [
+        {
+          "when": "resourceExtname == .jl || editorLangId == julia",
+          "command": "julia.runFile",
+          "group": "navigation",
+          "order": 0,
+          "icon": "$(play)"
+        },
+        {
+          "when": "resourceExtname == .jl || editorLangId == julia",
+          "command": "julia.runSelection",
+          "group": "navigation",
+          "order": 2
+        }
+      ]
+    },
+    "configurationDefaults": {
+      "[julia]": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "test:julia": "julia --project=./julia/Positron -e \"using Pkg; Pkg.test()\"",
+    "verify": "npm run compile && npm run package"
+  },
+  "devDependencies": {
+    "@types/node": "14.x",
+    "@types/glob": "^7.2.0",
+    "@typescript-eslint/eslint-plugin": "^5.12.1",
+    "@typescript-eslint/parser": "^5.12.1",
+    "eslint": "^8.9.0",
+    "typescript": "^4.5.5",
+    "@vscode/vsce": "^3.3.2"
+  },
+  "dependencies": {
+    "which": "^3.0.0",
+    "semver": "^7.6.3",
+    "vscode-languageclient": "^9.0.1"
+  }
+}

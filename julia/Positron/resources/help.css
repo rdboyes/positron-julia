@@ -1,0 +1,119 @@
+:root {
+    --editor-font-family: var(--vscode-editor-font-family, "SF Mono", Monaco, Menlo, Courier, monospace);
+    --font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, sans-serif);
+    --foreground: var(--vscode-editor-foreground, black);
+    --background: var(--vscode-editor-background, white);
+    --link-foreground: var(--vscode-textLink-foreground, #006ab1);
+    --code-block-background: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.2));
+    --panel-border: var(--vscode-panel-border, rgba(127, 127, 127, 0.35));
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: var(--font-family);
+    font-size: var(--vscode-font-size, 13px);
+    background: var(--background);
+    color: var(--foreground);
+}
+
+.julia-help {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 0.75rem 1rem 2rem 1rem;
+}
+
+.julia-help h1,
+.julia-help h2,
+.julia-help h3 {
+    margin-top: 1.25rem;
+    margin-bottom: 0.5rem;
+    line-height: 1.25;
+}
+
+.julia-help p {
+    margin: 0.75rem 0;
+}
+
+.julia-help a {
+    color: var(--link-foreground);
+    text-decoration: none;
+    word-break: break-word;
+}
+
+.julia-help a:hover {
+    text-decoration: underline;
+}
+
+.julia-help code {
+    font-family: var(--editor-font-family);
+    font-size: 0.95em;
+    background-color: var(--code-block-background);
+    border-radius: 4px;
+    padding: 0.1rem 0.25rem;
+}
+
+.julia-help pre {
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    padding: 0.75rem;
+    overflow-x: auto;
+    background-color: var(--code-block-background);
+}
+
+.julia-help pre code {
+    background: transparent;
+    border-radius: 0;
+    padding: 0;
+    font-family: var(--editor-font-family);
+}
+
+.julia-help pre code .tok-keyword {
+    color: var(--vscode-symbolIcon-keywordForeground, #c586c0);
+}
+
+.julia-help pre code .tok-string {
+    color: var(--vscode-symbolIcon-stringForeground, #ce9178);
+}
+
+.julia-help pre code .tok-number {
+    color: var(--vscode-symbolIcon-numberForeground, #b5cea8);
+}
+
+.julia-help pre code .tok-comment {
+    color: var(--vscode-descriptionForeground, #6a9955);
+    font-style: italic;
+}
+
+.julia-help pre code .tok-macro {
+    color: var(--vscode-symbolIcon-operatorForeground, #dcdcaa);
+}
+
+.julia-help pre code .tok-literal {
+    color: var(--vscode-symbolIcon-constantForeground, #569cd6);
+}
+
+.julia-help pre code .tok-prompt {
+    color: var(--vscode-symbolIcon-variableForeground, #9cdcfe);
+    font-weight: 600;
+}
+
+.julia-help ol {
+    padding-left: 1.4rem;
+    margin-top: 0.5rem;
+}
+
+.julia-help li {
+    margin: 0.4rem 0;
+}
+
+.julia-help-methods {
+    margin-top: 1.25rem;
+    padding-top: 0.25rem;
+    border-top: 1px solid var(--panel-border);
+}
+
+.julia-help-note {
+    color: var(--vscode-descriptionForeground, inherit);
+    font-size: 0.95em;
+}

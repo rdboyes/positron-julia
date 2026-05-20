@@ -1,0 +1,8 @@
+.vscode/**
+src/**
+out/test/**
+tsconfig.json
+typings/**
+.github/**
+MIGRATION.md
+!node_modules/**

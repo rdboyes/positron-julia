@@ -1,0 +1,7 @@
+out/
+node_modules/
+*.vsix
+.vscode-test/
+lsdepot/
+.beads/
+.DS_Store

@@ -1,0 +1,369 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (C) 2024-2025 Posit Software, PBC. All rights reserved.
+ *  Licensed under the Elastic License 2.0. See LICENSE.txt for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+import * as vscode from 'vscode';
+import * as positron from 'positron';
+
+import { LOGGER, supervisorApi } from './extension';
+import { JuliaInstallation } from './julia-installation';
+import { JupyterLanguageRuntimeSession, JupyterKernelSpec } from './positron-supervisor';
+import { JuliaLanguageRuntimePackage, JuliaPackageManager, JuliaPackageSpec } from './packages';
+
+interface RuntimeResourceUsage {
+	[key: string]: unknown;
+}
+
+/**
+ * Represents a Julia runtime session.
+ */
+export class JuliaSession implements positron.LanguageRuntimeSession, vscode.Disposable {
+
+	/** The underlying Jupyter session */
+	private _kernel?: JupyterLanguageRuntimeSession;
+	private readonly _packageManager: JuliaPackageManager;
+	private readonly _suppressedExecutionIds = new Set<string>();
+
+	/** Dynamic state of the session */
+	public dynState: positron.LanguageRuntimeDynState;
+
+	/** Runtime info (available after start) */
+	public runtimeInfo: positron.LanguageRuntimeInfo = {
+		banner: 'Julia',
+		implementation_version: '',
+		language_version: '',
+	};
+
+	/** Event emitters */
+	private readonly _rawMessageEmitter = new vscode.EventEmitter<positron.LanguageRuntimeMessage>();
+	private readonly _messageEmitter = new vscode.EventEmitter<positron.LanguageRuntimeMessage>();
+	private readonly _stateEmitter = new vscode.EventEmitter<positron.RuntimeState>();
+	private readonly _exitEmitter = new vscode.EventEmitter<positron.LanguageRuntimeExit>();
+	private readonly _resourceUsageEmitter = new vscode.EventEmitter<RuntimeResourceUsage>();
+
+	/** Events */
+	onDidReceiveRuntimeMessageRaw: vscode.Event<positron.LanguageRuntimeMessage>;
+	onDidReceiveRuntimeMessage: vscode.Event<positron.LanguageRuntimeMessage>;
+	onDidChangeRuntimeState: vscode.Event<positron.RuntimeState>;
+	onDidEndSession: vscode.Event<positron.LanguageRuntimeExit>;
+	onDidUpdateResourceUsage: vscode.Event<RuntimeResourceUsage>;
+
+	constructor(
+		readonly runtimeMetadata: positron.LanguageRuntimeMetadata,
+		readonly metadata: positron.RuntimeSessionMetadata,
+		private readonly _installation: JuliaInstallation,
+		private readonly _extensionPath: string,
+		readonly kernelSpec?: JupyterKernelSpec,
+		sessionName?: string
+	) {
+		this.dynState = {
+			inputPrompt: 'julia>',
+			continuationPrompt: '      ',
+			sessionName: sessionName || runtimeMetadata.runtimeName,
+		};
+
+		this.onDidReceiveRuntimeMessageRaw = this._rawMessageEmitter.event;
+		this.onDidReceiveRuntimeMessage = this._messageEmitter.event;
+		this.onDidChangeRuntimeState = this._stateEmitter.event;
+		this.onDidEndSession = this._exitEmitter.event;
+		this.onDidUpdateResourceUsage = this._resourceUsageEmitter.event;
+		this._packageManager = new JuliaPackageManager(this, this._extensionPath);
+	}
+
+	private getDenseAsciiArtLines(juliaVersionLabel: string): string[] {
+		return [
+			'               _',
+			'   _       _ _(_)_     |  Documentation: https://docs.julialang.org',
+			'  (_)     | (_) (_)    |',
+			'   _ _   _| |_  __ _   |  Type "?" for help, "]?" for Pkg help.',
+			'  | | | | | | |/ _` |  |',
+			`  | | |_| | | | (_| |  |  Version ${juliaVersionLabel}`,
+			' _/ |\\__\'_|_|_|\\__\'_|  |  Official https://julialang.org release',
+			'|__/                   |',
+		];
+	}
+
+	private buildJuliaStartupBanner(info: positron.LanguageRuntimeInfo): string {
+		const juliaVersion = info.language_version || this._installation.version;
+		const juliaReleaseDate = this._installation.releaseDate;
+		const juliaVersionLabel = juliaReleaseDate
+			? `${juliaVersion} (${juliaReleaseDate})`
+			: juliaVersion;
+		const ijuliaVersion = info.implementation_version
+			? `IJulia ${info.implementation_version}`
+			: 'IJulia';
+		// Preserve fixed-width spacing in ASCII banner lines in HTML output rendering.
+		const preserveSpaces = (text: string): string => text.replace(/ /g, '\u00a0');
+
+		const banner = [
+			'Julia: A fresh approach to technical computing.',
+			`${ijuliaVersion} -- Jupyter kernel for Julia.`,
+			preserveSpaces(this.getDenseAsciiArtLines(juliaVersionLabel).join('\n')),
+		].join('\n').trimEnd();
+
+		// Use two trailing newlines to reliably render exactly one blank line before the prompt.
+		return `${banner}\n\n`;
+	}
+
+	dispose(): void {
+		this._rawMessageEmitter.dispose();
+		this._messageEmitter.dispose();
+		this._stateEmitter.dispose();
+		this._exitEmitter.dispose();
+		this._resourceUsageEmitter.dispose();
+	}
+
+	suppressRuntimeMessages(executionId: string): vscode.Disposable {
+		this._suppressedExecutionIds.add(executionId);
+		return new vscode.Disposable(() => {
+			this._suppressedExecutionIds.delete(executionId);
+		});
+	}
+
+	/**
+	 * Starts the Julia session.
+	 */
+	async start(): Promise<positron.LanguageRuntimeInfo> {
+		LOGGER.info(`Starting Julia session ${this.metadata.sessionId}`);
+
+		// Get the supervisor API
+		const supervisor = await supervisorApi();
+
+		// Create or restore the session via the supervisor
+		if (this.kernelSpec) {
+			// We have a kernel spec, so create a new session
+			LOGGER.info(`Creating new Julia session with kernel spec`);
+			this._kernel = await supervisor.createSession(
+				this.runtimeMetadata,
+				this.metadata,
+				this.kernelSpec,
+				this.dynState
+			);
+		} else {
+			// We don't have a kernel spec, so restore (reconnect) an existing session
+			LOGGER.info(`Restoring existing Julia session`);
+			this._kernel = await supervisor.restoreSession(
+				this.runtimeMetadata,
+				this.metadata,
+				this.dynState
+			);
+		}
+
+		// Forward events from the Jupyter session
+		this._kernel.onDidReceiveRuntimeMessage((msg: positron.LanguageRuntimeMessage) => {
+			this._rawMessageEmitter.fire(msg);
+			if (!this._suppressedExecutionIds.has(msg.parent_id)) {
+				this._messageEmitter.fire(msg);
+			}
+		});
+
+		this._kernel.onDidChangeRuntimeState((state: positron.RuntimeState) => {
+			this._stateEmitter.fire(state);
+			if (state === positron.RuntimeState.Ready) {
+				this._packageManager.onRuntimeReady().catch((error) => {
+					LOGGER.warn(`Failed to initialize Julia package helpers: ${error}`);
+				});
+			}
+		});
+
+		this._kernel.onDidEndSession((exit: positron.LanguageRuntimeExit) => {
+			this._exitEmitter.fire(exit);
+		});
+
+		// Positron may provide resource usage updates from supervisor sessions.
+		const kernelWithResourceUsage = this._kernel as unknown as {
+			onDidUpdateResourceUsage?: (listener: (usage: RuntimeResourceUsage) => void) => void;
+		};
+		if (typeof kernelWithResourceUsage.onDidUpdateResourceUsage === 'function') {
+			kernelWithResourceUsage.onDidUpdateResourceUsage((usage: RuntimeResourceUsage) => {
+				this._resourceUsageEmitter.fire(usage);
+			});
+		}
+
+		// Start the session
+		const info = await this._kernel.start();
+		this.runtimeInfo = {
+			...info,
+			banner: this.buildJuliaStartupBanner(info),
+		};
+		// Fallback for restored sessions where a Ready transition may have already occurred.
+		this._packageManager.sourcePackagesScript().catch((error) => {
+			LOGGER.warn(`Failed to source Julia package helper script: ${error}`);
+		});
+		return this.runtimeInfo;
+	}
+
+	execute(
+		code: string,
+		id: string,
+		mode: positron.RuntimeCodeExecutionMode,
+		errorBehavior: positron.RuntimeErrorBehavior
+	): void {
+		if (!this._kernel) {
+			throw new Error('Session not started');
+		}
+		this._kernel.execute(code, id, mode, errorBehavior);
+	}
+
+	isCodeFragmentComplete(code: string): Thenable<positron.RuntimeCodeFragmentStatus> {
+		if (!this._kernel) {
+			return Promise.resolve(positron.RuntimeCodeFragmentStatus.Unknown);
+		}
+		return this._kernel.isCodeFragmentComplete(code);
+	}
+
+	createClient(id: string, type: positron.RuntimeClientType, params: any, metadata?: any): Thenable<void> {
+		if (!this._kernel) {
+			throw new Error('Session not started');
+		}
+		return this._kernel.createClient(id, type, params, metadata);
+	}
+
+	listClients(type?: positron.RuntimeClientType): Thenable<Record<string, string>> {
+		if (!this._kernel) {
+			return Promise.resolve({});
+		}
+		return this._kernel.listClients(type);
+	}
+
+	removeClient(id: string): void {
+		if (!this._kernel) {
+			return;
+		}
+		this._kernel.removeClient(id);
+	}
+
+	sendClientMessage(clientId: string, messageId: string, message: any): void {
+		if (!this._kernel) {
+			throw new Error('Session not started');
+		}
+		this._kernel.sendClientMessage(clientId, messageId, message);
+	}
+
+	replyToPrompt(id: string, reply: string): void {
+		if (!this._kernel) {
+			throw new Error('Session not started');
+		}
+		this._kernel.replyToPrompt(id, reply);
+	}
+
+	async interrupt(): Promise<void> {
+		if (!this._kernel) {
+			return;
+		}
+		return this._kernel.interrupt();
+	}
+
+	async restart(workingDirectory?: string): Promise<void> {
+		LOGGER.info(`Restarting Julia session ${this.metadata.sessionId}`);
+		if (!this._kernel) {
+			throw new Error('Cannot restart; kernel not started');
+		}
+		return this._kernel.restart(workingDirectory);
+	}
+
+	async shutdown(exitReason = positron.RuntimeExitReason.Shutdown): Promise<void> {
+		LOGGER.info(`Shutting down Julia session ${this.metadata.sessionId}`);
+		if (!this._kernel) {
+			throw new Error('Cannot shutdown; kernel not started');
+		}
+		return this._kernel.shutdown(exitReason);
+	}
+
+	async forceQuit(): Promise<void> {
+		LOGGER.info(`Force quitting Julia session ${this.metadata.sessionId}`);
+		if (!this._kernel) {
+			throw new Error('Cannot force quit; kernel not started');
+		}
+		return this._kernel.forceQuit();
+	}
+
+	showOutput(channel?: positron.LanguageRuntimeSessionChannel): void {
+		if (this._kernel) {
+			this._kernel.showOutput(channel);
+		}
+	}
+
+	async showProfile(): Promise<void> {
+		LOGGER.info('Profiler not yet implemented for Julia');
+	}
+
+	openResource(_resource: vscode.Uri | string): Thenable<boolean> {
+		// TODO: Implement resource handling (help URIs, etc.)
+		return Promise.resolve(false);
+	}
+
+	getDynState(): Thenable<positron.LanguageRuntimeDynState> {
+		return Promise.resolve(this.dynState);
+	}
+
+	async debug(_request: positron.DebugProtocolRequest): Promise<positron.DebugProtocolResponse> {
+		throw new Error('Debugging is not yet supported for Julia sessions');
+	}
+
+	callMethod(method: string, ...args: any[]): Thenable<any> {
+		if (!this._kernel) {
+			throw new Error('Session not started');
+		}
+		return this._kernel.callMethod(method, ...args);
+	}
+
+	async setWorkingDirectory(dir: string): Promise<void> {
+		if (!this._kernel) {
+			throw new Error(`Cannot set working directory to ${dir}; kernel not started`);
+		}
+		// Escape the directory path for Julia
+		const escapedDir = dir
+			.replace(/\\/g, '\\\\')
+			.replace(/"/g, '\\"')
+			.replace(/\$/g, '\\$');
+		this._kernel.execute(
+			`cd("${escapedDir}")`,
+			'setwd-' + Date.now(),
+			positron.RuntimeCodeExecutionMode.Interactive,
+			positron.RuntimeErrorBehavior.Continue
+		);
+	}
+
+	// Positron package API (PR #12372+): package pane calls this to obtain the manager.
+	getPackageManager(): JuliaPackageManager {
+		if (!this._kernel) {
+			throw new Error('Package manager is not available before the session starts');
+		}
+		return this._packageManager;
+	}
+
+	// Legacy per-method package API retained for compatibility with older Positron builds.
+	async getPackages(): Promise<JuliaLanguageRuntimePackage[]> {
+		return this._packageManager.getPackages();
+	}
+
+	async installPackages(packages: JuliaPackageSpec[]): Promise<void> {
+		await this._packageManager.installPackages(packages);
+	}
+
+	async uninstallPackages(packageNames: string[]): Promise<void> {
+		await this._packageManager.uninstallPackages(packageNames);
+	}
+
+	async updatePackages(packages: JuliaPackageSpec[]): Promise<void> {
+		await this._packageManager.updatePackages(packages);
+	}
+
+	async updateAllPackages(): Promise<void> {
+		await this._packageManager.updateAllPackages();
+	}
+
+	async searchPackages(query: string): Promise<JuliaLanguageRuntimePackage[]> {
+		return this._packageManager.searchPackages(query);
+	}
+
+	async searchPackageVersions(name: string): Promise<string[]> {
+		return this._packageManager.searchPackageVersions(name);
+	}
+
+	updateSessionName(name: string): void {
+		this.dynState.sessionName = name;
+	}
+}
