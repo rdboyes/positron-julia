@@ -117,13 +117,57 @@ export class JuliaSession implements positron.LanguageRuntimeSession, vscode.Dis
 		if (!this._kernel) {
 			return;
 		}
-		this._kernel.execute(
-			`try; @eval import Revise; catch; end`,
-			`revise-autoload-${Date.now()}`,
-			positron.RuntimeCodeExecutionMode.Silent,
-			positron.RuntimeErrorBehavior.Continue
-		);
-		LOGGER.debug('Revise.jl auto-load attempted');
+
+		const executionId = `revise-autoload-${Date.now()}`;
+		const suppressDisposable = this.suppressRuntimeMessages(executionId);
+
+		let idleListener: vscode.Disposable | undefined;
+		let timeoutHandle: NodeJS.Timeout | undefined;
+		const cleanup = () => {
+			idleListener?.dispose();
+			idleListener = undefined;
+			if (timeoutHandle) {
+				clearTimeout(timeoutHandle);
+				timeoutHandle = undefined;
+			}
+			suppressDisposable.dispose();
+		};
+
+		idleListener = this.onDidReceiveRuntimeMessageRaw((msg) => {
+			if (msg.parent_id !== executionId) {
+				return;
+			}
+			if (msg.type === positron.LanguageRuntimeMessageType.State) {
+				const stateMsg = msg as positron.LanguageRuntimeState;
+				if (stateMsg.state === positron.RuntimeOnlineState.Idle) {
+					cleanup();
+				}
+			}
+		});
+
+		// Safety net in case Idle never arrives (precompilation can take a while).
+		timeoutHandle = setTimeout(cleanup, 10 * 60 * 1000);
+
+		// redirect_stderr/redirect_stdout silence the `[ Info: Precompiling ...]`
+		// noise and any SYSTEM task-error printing that Julia emits while loading
+		// Revise. Without this the messages reach IJulia's captured streams and
+		// surface in the console even though the execution is Silent.
+		try {
+			this._kernel.execute(
+				`try; redirect_stderr(devnull) do; redirect_stdout(devnull) do; @eval import Revise; end; end; catch; end`,
+				executionId,
+				positron.RuntimeCodeExecutionMode.Silent,
+				positron.RuntimeErrorBehavior.Continue
+			);
+			LOGGER.debug('Revise.jl auto-load attempted');
+		} catch (error) {
+			// If the kernel rejects the execute call synchronously (e.g. the
+			// session ended during startup), tear down the suppression entry
+			// and listeners immediately so they don't linger for the full
+			// 10-minute safety window.
+			cleanup();
+			LOGGER.warn(`Revise.jl auto-load failed to dispatch: ${error}`);
+		}
 	}
 
 	dispose(): void {

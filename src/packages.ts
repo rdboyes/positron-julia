@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import * as positron from 'positron';
@@ -195,6 +197,26 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 		return this._parseStringArray(raw);
 	}
 
+	async getPackageMetadata(
+		packageNames: string[],
+		token?: vscode.CancellationToken
+	): Promise<Map<string, Partial<positron.LanguageRuntimePackage>>> {
+		const cleaned = packageNames
+			.map((name) => name.trim())
+			.filter((name) => name.length > 0);
+		if (cleaned.length === 0) {
+			return new Map();
+		}
+		await this.sourcePackagesScript();
+		const raw = await this._executeAndCapture(
+			`_positron_package_metadata(${this._toJuliaStringVector(cleaned)})`,
+			positron.RuntimeCodeExecutionMode.Silent,
+			QUERY_TIMEOUT_MS,
+			token
+		);
+		return this._parseMetadata(raw);
+	}
+
 	private _parsePackages(raw: string): positron.LanguageRuntimePackage[] {
 		const parsed = this._parseJsonValue(raw);
 		if (!Array.isArray(parsed)) {
@@ -223,6 +245,32 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 			return [];
 		}
 		return parsed.filter((item): item is string => typeof item === 'string');
+	}
+
+	private _parseMetadata(raw: string): Map<string, Partial<positron.LanguageRuntimePackage>> {
+		const result = new Map<string, Partial<positron.LanguageRuntimePackage>>();
+		const parsed = this._parseJsonValue(raw);
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+			return result;
+		}
+		for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+			if (!value || typeof value !== 'object') {
+				continue;
+			}
+			const record = value as Record<string, unknown>;
+			const partial: Partial<positron.LanguageRuntimePackage> = {};
+			if (typeof record.latestVersion === 'string' && record.latestVersion.length > 0) {
+				partial.latestVersion = record.latestVersion;
+			}
+			if (typeof record.license === 'string' && record.license.length > 0) {
+				partial.license = record.license;
+			}
+			if (typeof record.publishedDate === 'string' && record.publishedDate.length > 0) {
+				partial.publishedDate = record.publishedDate;
+			}
+			result.set(key, partial);
+		}
+		return result;
 	}
 
 	private _parseJsonValue(raw: string): unknown {
@@ -277,8 +325,30 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 		timeoutMs: number = QUERY_TIMEOUT_MS,
 		token?: vscode.CancellationToken
 	): Promise<string> {
-		const result = await this._execute(code, mode, timeoutMs, token);
-		return result.stdout;
+		// Capture stdout via a temp file rather than the kernel's stream messages.
+		// Positron's runtime supervisor surfaces stream output to the console even
+		// for Silent executions, which leaked the raw packages JSON to the user.
+		// Redirecting stdout into a file inside Julia means the kernel emits no
+		// stream messages for these queries at all.
+		const tempFile = path.join(os.tmpdir(), `positron-julia-${crypto.randomUUID()}.txt`);
+		const escapedPath = this._escapeJuliaStringLiteral(tempFile);
+		const wrappedCode =
+			`let __positron_io = open("${escapedPath}", "w")\n` +
+			`try\n` +
+			`redirect_stdout(__positron_io) do\n` +
+			`${code}\n` +
+			`end\n` +
+			`finally\n` +
+			`close(__positron_io)\n` +
+			`end\n` +
+			`end`;
+
+		try {
+			await this._execute(wrappedCode, mode, timeoutMs, token);
+			return await fs.promises.readFile(tempFile, 'utf-8');
+		} finally {
+			fs.promises.unlink(tempFile).catch(() => { /* ignore cleanup errors */ });
+		}
 	}
 
 	private async _executeAndWait(
@@ -309,36 +379,44 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 
 		return new Promise((resolve, reject) => {
 			let settled = false;
+			let listenersDisposed = false;
 			let timeoutHandle: NodeJS.Timeout | undefined;
+			let listenerForceCleanupHandle: NodeJS.Timeout | undefined;
 			let messageDisposable: vscode.Disposable | undefined;
 			let suppressDisposable: vscode.Disposable | undefined;
 			let cancelDisposable: vscode.Disposable | undefined;
 
-			const cleanup = () => {
-				if (timeoutHandle) {
-					clearTimeout(timeoutHandle);
+			// Kernel listeners and suppression are torn down only when the
+			// kernel reports Idle (or after a hard timeout safety net). This
+			// matters because Silent queries that are cancelled mid-flight are
+			// not interrupted on the kernel side — keeping the suppression
+			// listener alive ensures any output the kernel still produces is
+			// silently discarded.
+			const disposeListeners = () => {
+				if (listenersDisposed) {
+					return;
+				}
+				listenersDisposed = true;
+				if (listenerForceCleanupHandle) {
+					clearTimeout(listenerForceCleanupHandle);
+					listenerForceCleanupHandle = undefined;
 				}
 				suppressDisposable?.dispose();
 				messageDisposable?.dispose();
+			};
+
+			const settle = (action: () => void) => {
+				if (settled) {
+					return;
+				}
+				settled = true;
+				if (timeoutHandle) {
+					clearTimeout(timeoutHandle);
+					timeoutHandle = undefined;
+				}
 				cancelDisposable?.dispose();
-			};
-
-			const finishResolve = () => {
-				if (settled) {
-					return;
-				}
-				settled = true;
-				cleanup();
-				resolve({ stdout, stderr });
-			};
-
-			const finishReject = (error: unknown) => {
-				if (settled) {
-					return;
-				}
-				settled = true;
-				cleanup();
-				reject(error instanceof Error ? error : new Error(String(error)));
+				cancelDisposable = undefined;
+				action();
 			};
 
 			if (token?.isCancellationRequested) {
@@ -346,13 +424,37 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 				return;
 			}
 
+			// Safety net used after cancellation and timeout: if the kernel
+			// never reports Idle, we still need to tear down the suppression
+			// listener so it doesn't survive indefinitely.
+			const scheduleForceListenerCleanup = () => {
+				if (listenersDisposed || listenerForceCleanupHandle) {
+					return;
+				}
+				listenerForceCleanupHandle = setTimeout(disposeListeners, 30_000);
+			};
+
 			cancelDisposable = token?.onCancellationRequested(() => {
-				this._session.interrupt().catch(() => { /* best-effort */ });
-				finishReject(new vscode.CancellationError());
+				// For Silent (background) queries, do NOT interrupt the kernel.
+				// Interrupt is kernel-wide in Jupyter and raises an
+				// InterruptException whose error message Positron's supervisor
+				// surfaces to the console regardless of our session-level
+				// message suppression. Just abandon the awaited result; the
+				// listener stays alive until the kernel finishes the query on
+				// its own and reports Idle.
+				if (mode !== positron.RuntimeCodeExecutionMode.Silent) {
+					this._session.interrupt().catch(() => { /* best-effort */ });
+				}
+				settle(() => reject(new vscode.CancellationError()));
+				// settle() has cleared the timeout, so without scheduling
+				// another forced cleanup the suppression listener could leak
+				// if the kernel never returns to Idle (e.g. a hung registry).
+				scheduleForceListenerCleanup();
 			});
 
 			timeoutHandle = setTimeout(() => {
-				finishReject(new Error(`Timed out waiting for Julia package command to finish (${timeoutMs}ms)`));
+				settle(() => reject(new Error(`Timed out waiting for Julia package command to finish (${timeoutMs}ms)`)));
+				scheduleForceListenerCleanup();
 			}, timeoutMs);
 
 			if (mode === positron.RuntimeCodeExecutionMode.Silent) {
@@ -377,16 +479,17 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 					case positron.LanguageRuntimeMessageType.Error: {
 						const errorMessage = message as positron.LanguageRuntimeError;
 						const traceback = errorMessage.traceback?.join('\n') ?? '';
-						finishReject(new Error(
+						settle(() => reject(new Error(
 							`Julia package command failed: ${errorMessage.name}: ${errorMessage.message}` +
 							(traceback ? `\n${traceback}` : '')
-						));
+						)));
 						break;
 					}
 					case positron.LanguageRuntimeMessageType.State: {
 						const stateMessage = message as positron.LanguageRuntimeState;
 						if (stateMessage.state === positron.RuntimeOnlineState.Idle) {
-							finishResolve();
+							settle(() => resolve({ stdout, stderr }));
+							disposeListeners();
 						}
 						break;
 					}
@@ -403,7 +506,8 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 					positron.RuntimeErrorBehavior.Continue
 				);
 			} catch (error) {
-				finishReject(error);
+				settle(() => reject(error instanceof Error ? error : new Error(String(error))));
+				disposeListeners();
 			}
 		});
 	}
