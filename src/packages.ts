@@ -37,6 +37,10 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 	private readonly _onDidChangePackages = new vscode.EventEmitter<void>();
 	readonly onDidChangePackages: vscode.Event<void> = this._onDidChangePackages.event;
 
+	private _notifyThrottleHandle: NodeJS.Timeout | undefined;
+	private _notifyPending = false;
+	private static readonly _NOTIFY_THROTTLE_MS = 10_000;
+
 	constructor(session: JuliaPackageSession, extensionPath: string) {
 		this._session = session;
 		this._scriptPath = path.join(extensionPath, 'scripts', 'packages', 'packages.jl');
@@ -49,17 +53,34 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 
 	// Called from JuliaSession when an unsuppressed Idle message arrives
 	// (i.e. user-executed code finished, not one of our Silent package calls).
+	// Throttled to fire at most once per _NOTIFY_THROTTLE_MS, with a trailing
+	// fire if any idles arrived during the cooldown.
 	notifyRuntimeIdle(): void {
 		if (this._mutationCount === 0 && this._scriptSourced) {
-			this._onDidChangePackages.fire();
-			// Trigger the packages pane refresh directly via command. This is
-			// needed because Positron's packages pane only auto-refreshes on
-			// RuntimeState.Ready (startup), not after ordinary console executions.
-			vscode.commands.executeCommand('positronPackages.refreshPackages').then(
-				undefined,
-				() => { /* command unavailable in this Positron version, ignore */ }
-			);
+			if (this._notifyThrottleHandle) {
+				this._notifyPending = true;
+				return;
+			}
+			this._firePackagesChanged();
+			this._notifyThrottleHandle = setTimeout(() => {
+				this._notifyThrottleHandle = undefined;
+				if (this._notifyPending) {
+					this._notifyPending = false;
+					this._firePackagesChanged();
+				}
+			}, JuliaPackageManager._NOTIFY_THROTTLE_MS);
 		}
+	}
+
+	private _firePackagesChanged(): void {
+		this._onDidChangePackages.fire();
+		// Trigger the packages pane refresh directly via command. This is
+		// needed because Positron's packages pane only auto-refreshes on
+		// RuntimeState.Ready (startup), not after ordinary console executions.
+		vscode.commands.executeCommand('positronPackages.refreshPackages').then(
+			undefined,
+			() => { /* command unavailable in this Positron version, ignore */ }
+		);
 	}
 
 	async sourcePackagesScript(): Promise<void> {
