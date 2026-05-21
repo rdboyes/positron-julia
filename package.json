@@ -2,7 +2,7 @@
   "name": "positron-julia",
   "displayName": "Julia for Positron",
   "description": "Julia language support for Positron IDE",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "publisher": "TidierOrg, rdboyes, ntluong95",
   "license": "SEE LICENSE IN LICENSE",
   "private": false,
@@ -186,7 +186,9 @@
       {
         "type": "julia",
         "label": "Julia",
-        "languages": ["julia"],
+        "languages": [
+          "julia"
+        ],
         "configurationAttributes": {
           "launch": {
             "properties": {
@@ -206,13 +208,17 @@
               },
               "args": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "default": [],
                 "description": "Command-line arguments passed to the Julia program."
               },
               "juliaAdditionalArgs": {
                 "type": "array",
-                "items": { "type": "string" },
+                "items": {
+                  "type": "string"
+                },
                 "default": [],
                 "description": "Additional Julia CLI arguments (e.g. --threads=4)."
               }
@@ -231,7 +237,9 @@
       }
     ],
     "breakpoints": [
-      { "language": "julia" }
+      {
+        "language": "julia"
+      }
     ],
     "keybindings": [
       {
@@ -285,7 +293,11 @@
           "description": "Enable semantic highlighting for string tokens."
         },
         "julia.NumThreads": {
-          "type": ["integer", "string", "null"],
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ],
           "default": null,
           "scope": "machine-overridable",
           "markdownDescription": "Number of threads to use for Julia processes. Set to `auto` to let Julia decide, or `null` to use the environment default."
@@ -293,7 +305,9 @@
         "julia.additionalArgs": {
           "type": "array",
           "default": [],
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "description": "Additional Julia command-line arguments passed when starting the kernel."
         },
         "julia.packageServer": {
@@ -305,7 +319,11 @@
         "julia.trace.server": {
           "type": "string",
           "default": "off",
-          "enum": ["off", "messages", "verbose"],
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
           "enumDescriptions": [
             "No tracing",
             "Log LSP message types",
@@ -371,14 +389,23 @@
         },
         "julia.lint.disabledDirs": {
           "type": "array",
-          "default": ["docs", "test"],
-          "items": { "type": "string" },
+          "default": [
+            "docs",
+            "test"
+          ],
+          "items": {
+            "type": "string"
+          },
           "description": "Directories to exclude from linting."
         },
         "julia.completionmode": {
           "type": "string",
           "default": "qualify",
-          "enum": ["exportedonly", "import", "qualify"],
+          "enum": [
+            "exportedonly",
+            "import",
+            "qualify"
+          ],
           "enumDescriptions": [
             "Show only exported names",
             "Auto-insert `import` for unexported names",
@@ -400,8 +427,15 @@
         },
         "julia.cellDelimiters": {
           "type": "array",
-          "default": ["^\\s?#\\s#+", "^##(?!#)", "^#(\\s?)%%", "^#-"],
-          "items": { "type": "string" },
+          "default": [
+            "^\\s?#\\s#+",
+            "^##(?!#)",
+            "^#(\\s?)%%",
+            "^#-"
+          ],
+          "items": {
+            "type": "string"
+          },
           "description": "Regular expressions used to detect code cell boundaries in Julia files."
         },
         "julia.inlayHints.static.enabled": {
@@ -417,7 +451,11 @@
         "julia.inlayHints.static.parameterNames.enabled": {
           "type": "string",
           "default": "literals",
-          "enum": ["none", "literals", "all"],
+          "enum": [
+            "none",
+            "literals",
+            "all"
+          ],
           "enumDescriptions": [
             "No parameter name hints",
             "Show hints for literal arguments only",
