@@ -152,13 +152,22 @@ export class JuliaSession implements positron.LanguageRuntimeSession, vscode.Dis
 		// noise and any SYSTEM task-error printing that Julia emits while loading
 		// Revise. Without this the messages reach IJulia's captured streams and
 		// surface in the console even though the execution is Silent.
-		this._kernel.execute(
-			`try; redirect_stderr(devnull) do; redirect_stdout(devnull) do; @eval import Revise; end; end; catch; end`,
-			executionId,
-			positron.RuntimeCodeExecutionMode.Silent,
-			positron.RuntimeErrorBehavior.Continue
-		);
-		LOGGER.debug('Revise.jl auto-load attempted');
+		try {
+			this._kernel.execute(
+				`try; redirect_stderr(devnull) do; redirect_stdout(devnull) do; @eval import Revise; end; end; catch; end`,
+				executionId,
+				positron.RuntimeCodeExecutionMode.Silent,
+				positron.RuntimeErrorBehavior.Continue
+			);
+			LOGGER.debug('Revise.jl auto-load attempted');
+		} catch (error) {
+			// If the kernel rejects the execute call synchronously (e.g. the
+			// session ended during startup), tear down the suppression entry
+			// and listeners immediately so they don't linger for the full
+			// 10-minute safety window.
+			cleanup();
+			LOGGER.warn(`Revise.jl auto-load failed to dispatch: ${error}`);
+		}
 	}
 
 	dispose(): void {

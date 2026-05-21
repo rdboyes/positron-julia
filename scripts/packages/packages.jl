@@ -183,10 +183,12 @@ function _positron_print_json_metadata(by_name::Dict{String,String})
 end
 
 function _positron_package_metadata(names::Vector{String})
+    # Match registry entries case-insensitively so callers can pass either
+    # canonical (`Revise`) or lower-cased (`revise`) package names.
     targets = Set{String}()
     for raw in names
         cleaned = strip(raw)
-        isempty(cleaned) || push!(targets, String(cleaned))
+        isempty(cleaned) || push!(targets, lowercase(String(cleaned)))
     end
     by_name = Dict{String,String}()
 
@@ -197,7 +199,7 @@ function _positron_package_metadata(names::Vector{String})
 
     for registry in Pkg.Registry.reachable_registries()
         for entry in values(registry.pkgs)
-            entry.name in targets || continue
+            lowercase(entry.name) in targets || continue
 
             version = try
                 _positron_latest_registry_version(entry)

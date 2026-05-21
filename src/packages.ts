@@ -424,6 +424,16 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 				return;
 			}
 
+			// Safety net used after cancellation and timeout: if the kernel
+			// never reports Idle, we still need to tear down the suppression
+			// listener so it doesn't survive indefinitely.
+			const scheduleForceListenerCleanup = () => {
+				if (listenersDisposed || listenerForceCleanupHandle) {
+					return;
+				}
+				listenerForceCleanupHandle = setTimeout(disposeListeners, 30_000);
+			};
+
 			cancelDisposable = token?.onCancellationRequested(() => {
 				// For Silent (background) queries, do NOT interrupt the kernel.
 				// Interrupt is kernel-wide in Jupyter and raises an
@@ -436,15 +446,15 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 					this._session.interrupt().catch(() => { /* best-effort */ });
 				}
 				settle(() => reject(new vscode.CancellationError()));
+				// settle() has cleared the timeout, so without scheduling
+				// another forced cleanup the suppression listener could leak
+				// if the kernel never returns to Idle (e.g. a hung registry).
+				scheduleForceListenerCleanup();
 			});
 
 			timeoutHandle = setTimeout(() => {
 				settle(() => reject(new Error(`Timed out waiting for Julia package command to finish (${timeoutMs}ms)`)));
-				// Safety net: if Idle never arrives after a timeout, force
-				// listener teardown so we don't leak the suppression entry.
-				if (!listenersDisposed) {
-					listenerForceCleanupHandle = setTimeout(disposeListeners, 30_000);
-				}
+				scheduleForceListenerCleanup();
 			}, timeoutMs);
 
 			if (mode === positron.RuntimeCodeExecutionMode.Silent) {
