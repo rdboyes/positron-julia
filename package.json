@@ -3,7 +3,19 @@
   "displayName": "Julia for Positron",
   "description": "Julia language support for Positron IDE",
   "version": "0.1.3",
-  "publisher": "TidierOrg, rdboyes, ntluong95",
+  "publisher": "ntluong95",
+  "author": "TidierOrg, rdboyes, ntluong95",
+  "contributors": [
+    {
+      "name": "TidierOrg"
+    },
+    {
+      "name": "rdboyes"
+    },
+    {
+      "name": "ntluong95"
+    }
+  ],
   "license": "SEE LICENSE IN LICENSE",
   "private": false,
   "repository": {
