@@ -49,6 +49,10 @@ export class JuliaSession implements positron.LanguageRuntimeSession, vscode.Dis
 	onDidEndSession: vscode.Event<positron.LanguageRuntimeExit>;
 	onDidUpdateResourceUsage: vscode.Event<RuntimeResourceUsage>;
 
+	get installation(): JuliaInstallation {
+		return this._installation;
+	}
+
 	constructor(
 		readonly runtimeMetadata: positron.LanguageRuntimeMetadata,
 		readonly metadata: positron.RuntimeSessionMetadata,

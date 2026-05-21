@@ -19,6 +19,7 @@ import { registerCellCommands } from './cells';
 import { JuliaEnvironmentManager } from './environment';
 import { TestFeature } from './testing/testFeature';
 import { notifyTypeTextDocumentPublishTests } from './testing/testLSProtocol';
+import { registerDebugFeature } from './debugger/debugFeature';
 
 export const LOGGER = vscode.window.createOutputChannel('Julia Language Pack', { log: true });
 
@@ -95,6 +96,9 @@ export async function activate(context: vscode.ExtensionContext) {
 	// Environment status bar and switching
 	const environmentManager = new JuliaEnvironmentManager();
 	environmentManager.activate(context, getLanguageClient, () => juliaRuntimeManager.getActiveJuliaSession());
+
+	// Debug Adapter Protocol — breakpoints, step-through, variable inspection
+	registerDebugFeature(context, juliaRuntimeManager);
 
 	// Test Explorer — discovers @testitem blocks via the LS and runs them via a Julia subprocess
 	_testFeature = new TestFeature(

@@ -33,7 +33,11 @@
     "onCommand:julia.executeCell",
     "onCommand:julia.executeCellAndMove",
     "onCommand:julia.stopTestProcess",
-    "onCommand:julia.stopTestController"
+    "onCommand:julia.stopTestController",
+    "onCommand:julia.runEditorContents",
+    "onCommand:julia.debugEditorContents",
+    "onDebugInitialConfigurations",
+    "onDebugResolve:julia"
   ],
   "contributes": {
     "languageRuntimes": [
@@ -164,7 +168,70 @@
         "category": "Julia",
         "title": "Stop Test Controller",
         "icon": "$(debug-stop)"
+      },
+      {
+        "command": "julia.runEditorContents",
+        "category": "Julia",
+        "title": "Run File in Julia",
+        "icon": "$(play)"
+      },
+      {
+        "command": "julia.debugEditorContents",
+        "category": "Julia",
+        "title": "Debug File in Julia",
+        "icon": "$(debug-alt)"
       }
+    ],
+    "debuggers": [
+      {
+        "type": "julia",
+        "label": "Julia",
+        "languages": ["julia"],
+        "configurationAttributes": {
+          "launch": {
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Absolute path to the Julia file to debug."
+              },
+              "cwd": {
+                "type": "string",
+                "default": "${workspaceFolder}",
+                "description": "Working directory for the Julia process."
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "default": false,
+                "description": "Break at the first line of the program."
+              },
+              "args": {
+                "type": "array",
+                "items": { "type": "string" },
+                "default": [],
+                "description": "Command-line arguments passed to the Julia program."
+              },
+              "juliaAdditionalArgs": {
+                "type": "array",
+                "items": { "type": "string" },
+                "default": [],
+                "description": "Additional Julia CLI arguments (e.g. --threads=4)."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "julia",
+            "request": "launch",
+            "name": "Run Julia file",
+            "program": "${file}",
+            "stopOnEntry": false
+          }
+        ]
+      }
+    ],
+    "breakpoints": [
+      { "language": "julia" }
     ],
     "keybindings": [
       {
@@ -381,6 +448,12 @@
           "command": "julia.runSelection",
           "group": "navigation",
           "order": 2
+        },
+        {
+          "when": "resourceExtname == .jl || editorLangId == julia",
+          "command": "julia.debugEditorContents",
+          "group": "navigation",
+          "order": 3
         }
       ]
     },
