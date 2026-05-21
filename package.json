@@ -26,6 +26,7 @@
     "onCommand:julia.selectInterpreter",
     "onCommand:julia.runFile",
     "onCommand:julia.runSelection",
+    "onCommand:julia.toggleOutline",
     "onCommand:julia.restartLanguageServer",
     "onCommand:julia.refreshLanguageServer",
     "onCommand:julia.interrupt",
@@ -125,6 +126,17 @@
         "command": "julia.runSelection",
         "category": "Julia",
         "title": "Run Selection"
+      },
+      {
+        "command": "julia.toggleOutline",
+        "category": "Julia",
+        "title": "Toggle Outline",
+        "when": "editorLangId == julia",
+        "icon": "$(list-unordered)",
+        "actionBarOptions": {
+          "controlType": "button",
+          "displayTitle": false
+        }
       },
       {
         "command": "julia.restartLanguageServer",
@@ -492,6 +504,13 @@
           "command": "julia.debugEditorContents",
           "group": "navigation",
           "order": 3
+        }
+      ],
+      "editor/actions/left": [
+        {
+          "when": "resourceExtname == .jl || editorLangId == julia",
+          "command": "julia.toggleOutline",
+          "group": "navigation@45"
         }
       ]
     },
