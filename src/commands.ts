@@ -12,6 +12,7 @@ import { LOGGER, getLanguageClient, restartLanguageServer } from "./extension";
 const JULIA_LANGUAGE_ID = "julia";
 const JULIA_RUN_FILE_COMMAND = "julia.runFile";
 const JULIA_RUN_SELECTION_COMMAND = "julia.runSelection";
+const JULIA_TOGGLE_OUTLINE_COMMAND = "julia.toggleOutline";
 
 function isJuliaDocument(document: vscode.TextDocument): boolean {
   return document.languageId === JULIA_LANGUAGE_ID;
@@ -77,6 +78,8 @@ async function runSelection(editor: vscode.TextEditor): Promise<void> {
 
   await executeJuliaCode(code);
 }
+
+let outlineIsVisible = false;
 
 /**
  * Registers Julia-specific commands.
@@ -150,12 +153,28 @@ export function registerCommands(
     ),
   );
 
+  // Toggle Outline panel (only the Outline, not the whole sidebar)
+  context.subscriptions.push(
+    vscode.commands.registerCommand(JULIA_TOGGLE_OUTLINE_COMMAND, async () => {
+      if (outlineIsVisible) {
+        await vscode.commands.executeCommand("outline.removeView");
+        outlineIsVisible = false;
+      } else {
+        await vscode.commands.executeCommand("outline.focus");
+        outlineIsVisible = true;
+      }
+    }),
+  );
+
   // Restart the Julia Language Server
   context.subscriptions.push(
     vscode.commands.registerCommand("julia.restartLanguageServer", async () => {
       await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Window, title: "Restarting Julia Language Server..." },
-        () => restartLanguageServer()
+        {
+          location: vscode.ProgressLocation.Window,
+          title: "Restarting Julia Language Server...",
+        },
+        () => restartLanguageServer(),
       );
     }),
   );
@@ -165,7 +184,9 @@ export function registerCommands(
     vscode.commands.registerCommand("julia.refreshLanguageServer", async () => {
       const client = getLanguageClient();
       if (!client?.isRunning()) {
-        vscode.window.showWarningMessage("Julia Language Server is not running");
+        vscode.window.showWarningMessage(
+          "Julia Language Server is not running",
+        );
         return;
       }
       await client.sendLSNotification("julia/refreshLanguageServer");
