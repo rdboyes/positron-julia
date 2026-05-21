@@ -18,7 +18,7 @@ function _positron_print_json_string_array(values::Vector{String})
     print("]")
 end
 
-function _positron_print_json_packages(packages::Vector{NamedTuple{(:id, :name, :displayName, :version), NTuple{4, String}}})
+function _positron_print_json_packages(packages)
     print("[")
     for (index, package) in pairs(packages)
         index > 1 && print(",")
@@ -26,14 +26,43 @@ function _positron_print_json_packages(packages::Vector{NamedTuple{(:id, :name, 
         print("\"id\":", _positron_json_string(package.id), ",")
         print("\"name\":", _positron_json_string(package.name), ",")
         print("\"displayName\":", _positron_json_string(package.displayName), ",")
-        print("\"version\":", _positron_json_string(package.version))
+        print("\"version\":", _positron_json_string(package.version), ",")
+        print("\"attached\":", package.attached ? "true" : "false")
         print("}")
     end
     print("]")
 end
 
+function _positron_explicitly_loaded_names()
+    # Modules explicitly `using`-ed into Main (excludes transitive deps).
+    # Wrapped in try-catch since module_usings is an internal API.
+    loaded = try
+        Set{String}(
+            string(nameof(m))
+            for m in Base.module_usings(Main)
+            if m !== Base && m !== Core
+        )
+    catch
+        Set{String}()
+    end
+
+    # Modules explicitly `import`-ed (bound by name in Main, not via using).
+    for sym in names(Main; imported=true)
+        isdefined(Main, sym) || continue
+        val = try; getfield(Main, sym); catch; continue; end
+        val isa Module || continue
+        val === Main && continue
+        val === Base && continue
+        val === Core && continue
+        push!(loaded, string(sym))
+    end
+
+    return loaded
+end
+
 function _positron_list_packages(direct_only::Bool=true)
-    packages = NamedTuple{(:id, :name, :displayName, :version), NTuple{4, String}}[]
+    explicitly_loaded = _positron_explicitly_loaded_names()
+    packages = NamedTuple{(:id, :name, :displayName, :version, :attached), Tuple{String,String,String,String,Bool}}[]
     for package_info in values(Pkg.dependencies())
         if direct_only && !package_info.is_direct_dep
             continue
@@ -45,6 +74,7 @@ function _positron_list_packages(direct_only::Bool=true)
             name = name,
             displayName = name,
             version = version,
+            attached = name in explicitly_loaded,
         ))
     end
     sort!(packages, by = package -> lowercase(package.name))
@@ -93,7 +123,7 @@ end
 function _positron_search_packages(query::String)
     query = lowercase(strip(query))
     if isempty(query)
-        _positron_print_json_packages(NamedTuple{(:id, :name, :displayName, :version), NTuple{4, String}}[])
+        _positron_print_json_packages(NamedTuple{(:id, :name, :displayName, :version, :attached), Tuple{String,String,String,String,Bool}}[])
         return
     end
 
@@ -125,13 +155,14 @@ function _positron_search_packages(query::String)
         end
     end
 
-    packages = NamedTuple{(:id, :name, :displayName, :version), NTuple{4, String}}[]
+    packages = NamedTuple{(:id, :name, :displayName, :version, :attached), Tuple{String,String,String,String,Bool}}[]
     for (name, version) in by_name
         push!(packages, (
             id = "$(name)-$(version)",
             name = name,
             displayName = name,
             version = version,
+            attached = false,
         ))
     end
     sort!(packages, by = package -> lowercase(package.name))

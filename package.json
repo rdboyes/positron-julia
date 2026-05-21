@@ -1,14 +1,14 @@
 {
   "name": "positron-julia",
-  "displayName": "Julia for Positron",
+  "displayName": "Julia Language",
   "description": "Julia language support for Positron IDE",
   "version": "0.1.0",
-  "publisher": "ntluong95",
+  "publisher": "rdboyes",
   "license": "SEE LICENSE IN LICENSE",
   "private": false,
   "repository": {
     "type": "git",
-    "url": "https://github.com/ntluong95/positron-julia"
+    "url": "https://github.com/rdboyes/positron-julia"
   },
   "engines": {
     "vscode": "^1.99.0"

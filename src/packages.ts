@@ -13,18 +13,6 @@ import { LOGGER } from './extension';
 const QUERY_TIMEOUT_MS = 2 * 60 * 1000;
 const MUTATION_TIMEOUT_MS = 30 * 60 * 1000;
 
-export interface JuliaPackageSpec {
-	name: string;
-	version?: string;
-}
-
-export interface JuliaLanguageRuntimePackage {
-	id: string;
-	name: string;
-	displayName: string;
-	version: string;
-}
-
 interface JuliaPackageSession {
 	execute(
 		code: string,
@@ -32,15 +20,22 @@ interface JuliaPackageSession {
 		mode: positron.RuntimeCodeExecutionMode,
 		errorBehavior: positron.RuntimeErrorBehavior
 	): void;
+	interrupt(): Promise<void>;
 	onDidReceiveRuntimeMessageRaw: vscode.Event<positron.LanguageRuntimeMessage>;
 	suppressRuntimeMessages(executionId: string): vscode.Disposable;
 }
 
-export class JuliaPackageManager {
+export class JuliaPackageManager implements positron.LanguageRuntimePackageManager {
 	private readonly _session: JuliaPackageSession;
 	private readonly _scriptPath: string;
 	private _scriptSourced = false;
 	private _scriptSourcing: Promise<void> | undefined;
+	// Tracks in-flight Interactive (mutation) commands; Silent commands are
+	// already excluded via the suppressed-message stream.
+	private _mutationCount = 0;
+
+	private readonly _onDidChangePackages = new vscode.EventEmitter<void>();
+	readonly onDidChangePackages: vscode.Event<void> = this._onDidChangePackages.event;
 
 	constructor(session: JuliaPackageSession, extensionPath: string) {
 		this._session = session;
@@ -50,6 +45,21 @@ export class JuliaPackageManager {
 	async onRuntimeReady(): Promise<void> {
 		this._scriptSourced = false;
 		await this.sourcePackagesScript();
+	}
+
+	// Called from JuliaSession when an unsuppressed Idle message arrives
+	// (i.e. user-executed code finished, not one of our Silent package calls).
+	notifyRuntimeIdle(): void {
+		if (this._mutationCount === 0 && this._scriptSourced) {
+			this._onDidChangePackages.fire();
+			// Trigger the packages pane refresh directly via command. This is
+			// needed because Positron's packages pane only auto-refreshes on
+			// RuntimeState.Ready (startup), not after ordinary console executions.
+			vscode.commands.executeCommand('positronPackages.refreshPackages').then(
+				undefined,
+				() => { /* command unavailable in this Positron version, ignore */ }
+			);
+		}
 	}
 
 	async sourcePackagesScript(): Promise<void> {
@@ -81,13 +91,18 @@ export class JuliaPackageManager {
 		return this._scriptSourcing;
 	}
 
-	async getPackages(): Promise<JuliaLanguageRuntimePackage[]> {
+	async getPackages(token?: vscode.CancellationToken): Promise<positron.LanguageRuntimePackage[]> {
 		await this.sourcePackagesScript();
-		const raw = await this._executeAndCapture('_positron_list_packages()', positron.RuntimeCodeExecutionMode.Silent, QUERY_TIMEOUT_MS);
+		const raw = await this._executeAndCapture(
+			'_positron_list_packages()',
+			positron.RuntimeCodeExecutionMode.Silent,
+			QUERY_TIMEOUT_MS,
+			token
+		);
 		return this._parsePackages(raw);
 	}
 
-	async installPackages(packages: JuliaPackageSpec[]): Promise<void> {
+	async installPackages(packages: positron.PackageSpec[], token?: vscode.CancellationToken): Promise<void> {
 		await this.sourcePackagesScript();
 		const specs = packages
 			.filter((pkg) => pkg?.name && pkg.name.trim().length > 0)
@@ -99,10 +114,10 @@ export class JuliaPackageManager {
 		}
 
 		const code = `_positron_install_packages(${this._toJuliaStringVector(specs)})`;
-		await this._executeAndWait(code, MUTATION_TIMEOUT_MS);
+		await this._executeAndWait(code, MUTATION_TIMEOUT_MS, token);
 	}
 
-	async uninstallPackages(packageNames: string[]): Promise<void> {
+	async uninstallPackages(packageNames: string[], token?: vscode.CancellationToken): Promise<void> {
 		await this.sourcePackagesScript();
 		const names = packageNames.map((name) => name.trim()).filter((name) => name.length > 0);
 		if (names.length === 0) {
@@ -110,11 +125,12 @@ export class JuliaPackageManager {
 		}
 		await this._executeAndWait(
 			`_positron_uninstall_packages(${this._toJuliaStringVector(names)})`,
-			MUTATION_TIMEOUT_MS
+			MUTATION_TIMEOUT_MS,
+			token
 		);
 	}
 
-	async updatePackages(packages: JuliaPackageSpec[]): Promise<void> {
+	async updatePackages(packages: positron.PackageSpec[], token?: vscode.CancellationToken): Promise<void> {
 		await this.sourcePackagesScript();
 		const names = packages
 			.filter((pkg) => pkg?.name && pkg.name.trim().length > 0)
@@ -124,38 +140,41 @@ export class JuliaPackageManager {
 		}
 		await this._executeAndWait(
 			`_positron_update_packages(${this._toJuliaStringVector(names)})`,
-			MUTATION_TIMEOUT_MS
+			MUTATION_TIMEOUT_MS,
+			token
 		);
 	}
 
-	async updateAllPackages(): Promise<void> {
+	async updateAllPackages(token?: vscode.CancellationToken): Promise<void> {
 		await this.sourcePackagesScript();
-		await this._executeAndWait('_positron_update_all_packages()', MUTATION_TIMEOUT_MS);
+		await this._executeAndWait('_positron_update_all_packages()', MUTATION_TIMEOUT_MS, token);
 	}
 
-	async searchPackages(query: string): Promise<JuliaLanguageRuntimePackage[]> {
+	async searchPackages(query: string, token?: vscode.CancellationToken): Promise<positron.LanguageRuntimePackage[]> {
 		await this.sourcePackagesScript();
 		const escaped = this._escapeJuliaStringLiteral(query);
 		const raw = await this._executeAndCapture(
 			`_positron_search_packages("${escaped}")`,
 			positron.RuntimeCodeExecutionMode.Silent,
-			QUERY_TIMEOUT_MS
+			QUERY_TIMEOUT_MS,
+			token
 		);
 		return this._parsePackages(raw);
 	}
 
-	async searchPackageVersions(name: string): Promise<string[]> {
+	async searchPackageVersions(name: string, token?: vscode.CancellationToken): Promise<string[]> {
 		await this.sourcePackagesScript();
 		const escaped = this._escapeJuliaStringLiteral(name);
 		const raw = await this._executeAndCapture(
 			`_positron_search_package_versions("${escaped}")`,
 			positron.RuntimeCodeExecutionMode.Silent,
-			QUERY_TIMEOUT_MS
+			QUERY_TIMEOUT_MS,
+			token
 		);
 		return this._parseStringArray(raw);
 	}
 
-	private _parsePackages(raw: string): JuliaLanguageRuntimePackage[] {
+	private _parsePackages(raw: string): positron.LanguageRuntimePackage[] {
 		const parsed = this._parseJsonValue(raw);
 		if (!Array.isArray(parsed)) {
 			return [];
@@ -171,6 +190,7 @@ export class JuliaPackageManager {
 					name,
 					displayName: typeof record.displayName === 'string' ? record.displayName : name,
 					version,
+					attached: typeof record.attached === 'boolean' ? record.attached : undefined,
 				};
 			})
 			.filter((pkg) => pkg.name.length > 0);
@@ -233,20 +253,34 @@ export class JuliaPackageManager {
 	private async _executeAndCapture(
 		code: string,
 		mode: positron.RuntimeCodeExecutionMode = positron.RuntimeCodeExecutionMode.Silent,
-		timeoutMs: number = QUERY_TIMEOUT_MS
+		timeoutMs: number = QUERY_TIMEOUT_MS,
+		token?: vscode.CancellationToken
 	): Promise<string> {
-		const result = await this._execute(code, mode, timeoutMs);
+		const result = await this._execute(code, mode, timeoutMs, token);
 		return result.stdout;
 	}
 
-	private async _executeAndWait(code: string, timeoutMs: number = MUTATION_TIMEOUT_MS): Promise<void> {
-		await this._execute(code, positron.RuntimeCodeExecutionMode.Interactive, timeoutMs);
+	private async _executeAndWait(
+		code: string,
+		timeoutMs: number = MUTATION_TIMEOUT_MS,
+		token?: vscode.CancellationToken
+	): Promise<void> {
+		// Increment so notifyRuntimeIdle() doesn't fire the change event for
+		// the Idle that ends this mutation — the packages instance already
+		// refreshes explicitly after each install/uninstall/update.
+		this._mutationCount++;
+		try {
+			await this._execute(code, positron.RuntimeCodeExecutionMode.Interactive, timeoutMs, token);
+		} finally {
+			this._mutationCount--;
+		}
 	}
 
 	private _execute(
 		code: string,
 		mode: positron.RuntimeCodeExecutionMode,
-		timeoutMs: number
+		timeoutMs: number,
+		token?: vscode.CancellationToken
 	): Promise<{ stdout: string; stderr: string }> {
 		const executionId = crypto.randomUUID();
 		let stdout = '';
@@ -257,6 +291,7 @@ export class JuliaPackageManager {
 			let timeoutHandle: NodeJS.Timeout | undefined;
 			let messageDisposable: vscode.Disposable | undefined;
 			let suppressDisposable: vscode.Disposable | undefined;
+			let cancelDisposable: vscode.Disposable | undefined;
 
 			const cleanup = () => {
 				if (timeoutHandle) {
@@ -264,6 +299,7 @@ export class JuliaPackageManager {
 				}
 				suppressDisposable?.dispose();
 				messageDisposable?.dispose();
+				cancelDisposable?.dispose();
 			};
 
 			const finishResolve = () => {
@@ -283,6 +319,16 @@ export class JuliaPackageManager {
 				cleanup();
 				reject(error instanceof Error ? error : new Error(String(error)));
 			};
+
+			if (token?.isCancellationRequested) {
+				reject(new vscode.CancellationError());
+				return;
+			}
+
+			cancelDisposable = token?.onCancellationRequested(() => {
+				this._session.interrupt().catch(() => { /* best-effort */ });
+				finishReject(new vscode.CancellationError());
+			});
 
 			timeoutHandle = setTimeout(() => {
 				finishReject(new Error(`Timed out waiting for Julia package command to finish (${timeoutMs}ms)`));

@@ -9,7 +9,7 @@ import * as positron from 'positron';
 import { LOGGER, supervisorApi } from './extension';
 import { JuliaInstallation } from './julia-installation';
 import { JupyterLanguageRuntimeSession, JupyterKernelSpec } from './positron-supervisor';
-import { JuliaLanguageRuntimePackage, JuliaPackageManager, JuliaPackageSpec } from './packages';
+import { JuliaPackageManager } from './packages';
 
 interface RuntimeResourceUsage {
 	[key: string]: unknown;
@@ -175,6 +175,14 @@ export class JuliaSession implements positron.LanguageRuntimeSession, vscode.Dis
 			this._rawMessageEmitter.fire(msg);
 			if (!this._suppressedExecutionIds.has(msg.parent_id)) {
 				this._messageEmitter.fire(msg);
+				// Silent package commands are excluded by _suppressedExecutionIds,
+				// so any unsuppressed Idle here is user-executed code.
+				if (msg.type === positron.LanguageRuntimeMessageType.State) {
+					const stateMsg = msg as positron.LanguageRuntimeState;
+					if (stateMsg.state === positron.RuntimeOnlineState.Idle) {
+						this._packageManager.notifyRuntimeIdle();
+					}
+				}
 			}
 		});
 
@@ -347,41 +355,8 @@ export class JuliaSession implements positron.LanguageRuntimeSession, vscode.Dis
 		);
 	}
 
-	// Positron package API (PR #12372+): package pane calls this to obtain the manager.
-	getPackageManager(): JuliaPackageManager {
-		if (!this._kernel) {
-			throw new Error('Package manager is not available before the session starts');
-		}
+	getPackageManager(): positron.LanguageRuntimePackageManager {
 		return this._packageManager;
-	}
-
-	// Legacy per-method package API retained for compatibility with older Positron builds.
-	async getPackages(): Promise<JuliaLanguageRuntimePackage[]> {
-		return this._packageManager.getPackages();
-	}
-
-	async installPackages(packages: JuliaPackageSpec[]): Promise<void> {
-		await this._packageManager.installPackages(packages);
-	}
-
-	async uninstallPackages(packageNames: string[]): Promise<void> {
-		await this._packageManager.uninstallPackages(packageNames);
-	}
-
-	async updatePackages(packages: JuliaPackageSpec[]): Promise<void> {
-		await this._packageManager.updatePackages(packages);
-	}
-
-	async updateAllPackages(): Promise<void> {
-		await this._packageManager.updateAllPackages();
-	}
-
-	async searchPackages(query: string): Promise<JuliaLanguageRuntimePackage[]> {
-		return this._packageManager.searchPackages(query);
-	}
-
-	async searchPackageVersions(name: string): Promise<string[]> {
-		return this._packageManager.searchPackageVersions(name);
 	}
 
 	updateSessionName(name: string): void {

@@ -1,4 +1,4 @@
-# julia-positron
+# positron-julia
 
 Julia language support for [Positron](https://github.com/posit-dev/positron). Based on `julia-vscode`, `Julia for Positron`, and @wesm's closed PR on the positron repo.
 

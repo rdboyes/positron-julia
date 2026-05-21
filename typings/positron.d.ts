@@ -1229,8 +1229,61 @@ declare module 'positron' {
 		 * Show profiler log if supported.
 		 */
 		showProfile?(): Thenable<void>;
+
+		/**
+		 * Get the package manager for this session, if the runtime supports
+		 * package management (e.g. to power the Packages pane).
+		 */
+		getPackageManager?(): LanguageRuntimePackageManager;
 	}
 
+	/**
+	 * Describes an installed or available package in a language runtime.
+	 */
+	export interface LanguageRuntimePackage {
+		id: string;
+		name: string;
+		displayName: string;
+		version: string;
+		license?: string;
+		latestVersion?: string;
+		publishedDate?: string;
+		/** Whether the package is currently attached/loaded in the session. */
+		attached?: boolean;
+	}
+
+	/**
+	 * Specifies a package to install, with an optional version.
+	 */
+	export interface PackageSpec {
+		name: string;
+		version?: string;
+	}
+
+	/**
+	 * Interface implemented by extensions that support package management.
+	 * Returned by LanguageRuntimeSession.getPackageManager().
+	 */
+	export interface LanguageRuntimePackageManager {
+		getPackages(token?: vscode.CancellationToken): Thenable<LanguageRuntimePackage[]>;
+		installPackages(packages: PackageSpec[], token?: vscode.CancellationToken): Thenable<void>;
+		uninstallPackages(packageNames: string[], token?: vscode.CancellationToken): Thenable<void>;
+		updatePackages(packages: PackageSpec[], token?: vscode.CancellationToken): Thenable<void>;
+		updateAllPackages(token?: vscode.CancellationToken): Thenable<void>;
+		searchPackages(query: string, token?: vscode.CancellationToken): Thenable<LanguageRuntimePackage[]>;
+		searchPackageVersions(name: string, token?: vscode.CancellationToken): Thenable<string[]>;
+		getPackageMetadata?(
+			packageNames: string[],
+			token?: vscode.CancellationToken,
+		): Thenable<Map<string, Partial<LanguageRuntimePackage>>>;
+
+		/**
+		 * Fired when the set of loaded/attached packages may have changed
+		 * (e.g. the user ran `using Foo` in the console). The packages pane
+		 * subscribes to this to refresh without polling.
+		 */
+		onDidChangePackages?: vscode.Event<void>;
+	}
 
 	/**
 	 * A data structure that describes a handler for a runtime client instance,
