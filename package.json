@@ -521,8 +521,7 @@
         {
           "when": "resourceExtname == .jl || editorLangId == julia",
           "command": "julia.debugEditorContents",
-          "group": "navigation",
-          "order": 3
+          "group": "navigation@46"
         }
       ]
     },

@@ -169,6 +169,60 @@ function _positron_search_packages(query::String)
     _positron_print_json_packages(packages)
 end
 
+function _positron_print_json_metadata(by_name::Dict{String,String})
+    print("{")
+    first = true
+    for (name, version) in by_name
+        first || print(",")
+        first = false
+        print(_positron_json_string(lowercase(name)), ":{")
+        print("\"latestVersion\":", _positron_json_string(version))
+        print("}")
+    end
+    print("}")
+end
+
+function _positron_package_metadata(names::Vector{String})
+    targets = Set{String}()
+    for raw in names
+        cleaned = strip(raw)
+        isempty(cleaned) || push!(targets, String(cleaned))
+    end
+    by_name = Dict{String,String}()
+
+    if isempty(targets)
+        _positron_print_json_metadata(by_name)
+        return
+    end
+
+    for registry in Pkg.Registry.reachable_registries()
+        for entry in values(registry.pkgs)
+            entry.name in targets || continue
+
+            version = try
+                _positron_latest_registry_version(entry)
+            catch
+                "0"
+            end
+
+            previous = get(by_name, entry.name, nothing)
+            if previous === nothing
+                by_name[entry.name] = version
+            elseif previous != version
+                try
+                    if previous == "0" || VersionNumber(version) > VersionNumber(previous)
+                        by_name[entry.name] = version
+                    end
+                catch
+                    # Keep the existing version if parsing fails.
+                end
+            end
+        end
+    end
+
+    _positron_print_json_metadata(by_name)
+end
+
 function _positron_search_package_versions(name::String)
     target = lowercase(strip(name))
     versions = Set{VersionNumber}()

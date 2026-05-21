@@ -4,6 +4,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import * as positron from 'positron';
@@ -195,6 +197,26 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 		return this._parseStringArray(raw);
 	}
 
+	async getPackageMetadata(
+		packageNames: string[],
+		token?: vscode.CancellationToken
+	): Promise<Map<string, Partial<positron.LanguageRuntimePackage>>> {
+		const cleaned = packageNames
+			.map((name) => name.trim())
+			.filter((name) => name.length > 0);
+		if (cleaned.length === 0) {
+			return new Map();
+		}
+		await this.sourcePackagesScript();
+		const raw = await this._executeAndCapture(
+			`_positron_package_metadata(${this._toJuliaStringVector(cleaned)})`,
+			positron.RuntimeCodeExecutionMode.Silent,
+			QUERY_TIMEOUT_MS,
+			token
+		);
+		return this._parseMetadata(raw);
+	}
+
 	private _parsePackages(raw: string): positron.LanguageRuntimePackage[] {
 		const parsed = this._parseJsonValue(raw);
 		if (!Array.isArray(parsed)) {
@@ -223,6 +245,32 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 			return [];
 		}
 		return parsed.filter((item): item is string => typeof item === 'string');
+	}
+
+	private _parseMetadata(raw: string): Map<string, Partial<positron.LanguageRuntimePackage>> {
+		const result = new Map<string, Partial<positron.LanguageRuntimePackage>>();
+		const parsed = this._parseJsonValue(raw);
+		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+			return result;
+		}
+		for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+			if (!value || typeof value !== 'object') {
+				continue;
+			}
+			const record = value as Record<string, unknown>;
+			const partial: Partial<positron.LanguageRuntimePackage> = {};
+			if (typeof record.latestVersion === 'string' && record.latestVersion.length > 0) {
+				partial.latestVersion = record.latestVersion;
+			}
+			if (typeof record.license === 'string' && record.license.length > 0) {
+				partial.license = record.license;
+			}
+			if (typeof record.publishedDate === 'string' && record.publishedDate.length > 0) {
+				partial.publishedDate = record.publishedDate;
+			}
+			result.set(key, partial);
+		}
+		return result;
 	}
 
 	private _parseJsonValue(raw: string): unknown {
@@ -277,8 +325,30 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 		timeoutMs: number = QUERY_TIMEOUT_MS,
 		token?: vscode.CancellationToken
 	): Promise<string> {
-		const result = await this._execute(code, mode, timeoutMs, token);
-		return result.stdout;
+		// Capture stdout via a temp file rather than the kernel's stream messages.
+		// Positron's runtime supervisor surfaces stream output to the console even
+		// for Silent executions, which leaked the raw packages JSON to the user.
+		// Redirecting stdout into a file inside Julia means the kernel emits no
+		// stream messages for these queries at all.
+		const tempFile = path.join(os.tmpdir(), `positron-julia-${crypto.randomUUID()}.txt`);
+		const escapedPath = this._escapeJuliaStringLiteral(tempFile);
+		const wrappedCode =
+			`let __positron_io = open("${escapedPath}", "w")\n` +
+			`try\n` +
+			`redirect_stdout(__positron_io) do\n` +
+			`${code}\n` +
+			`end\n` +
+			`finally\n` +
+			`close(__positron_io)\n` +
+			`end\n` +
+			`end`;
+
+		try {
+			await this._execute(wrappedCode, mode, timeoutMs, token);
+			return await fs.promises.readFile(tempFile, 'utf-8');
+		} finally {
+			fs.promises.unlink(tempFile).catch(() => { /* ignore cleanup errors */ });
+		}
 	}
 
 	private async _executeAndWait(
