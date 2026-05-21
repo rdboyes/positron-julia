@@ -510,12 +510,6 @@
           "command": "julia.runSelection",
           "group": "navigation",
           "order": 2
-        },
-        {
-          "when": "resourceExtname == .jl || editorLangId == julia",
-          "command": "julia.debugEditorContents",
-          "group": "navigation",
-          "order": 3
         }
       ],
       "editor/actions/left": [
@@ -523,6 +517,12 @@
           "when": "resourceExtname == .jl || editorLangId == julia",
           "command": "julia.toggleOutline",
           "group": "navigation@45"
+        },
+        {
+          "when": "resourceExtname == .jl || editorLangId == julia",
+          "command": "julia.debugEditorContents",
+          "group": "navigation",
+          "order": 3
         }
       ]
     },
