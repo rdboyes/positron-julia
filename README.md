@@ -21,6 +21,8 @@ Julia language support for [Positron](https://github.com/posit-dev/positron). Ba
 - **Help Integration** — View Julia documentation inline via Positron's Help pane.
 - **Plots** — Julia plots are captured and displayed in Positron's Plots pane.
 - **Package Pane** — Browse and manage Julia packages directly within Positron.
+- **TestItem Compatible** - Uses the same testing system as `julia-vscode`
+- **Debugger** - Use breakpoints, inspect local and global variables, etc. 
 
 ## Requirements
 
