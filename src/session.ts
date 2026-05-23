@@ -231,13 +231,17 @@ export class JuliaSession implements positron.LanguageRuntimeSession, vscode.Dis
 		});
 
 		this._kernel.onDidChangeRuntimeState((state: positron.RuntimeState) => {
-			this._stateEmitter.fire(state);
 			if (state === positron.RuntimeState.Ready) {
+				// Call onRuntimeReady before firing the state event so that
+				// _scriptSourced is reset and the include is submitted to the
+				// kernel before Positron can call getPackages() in response to
+				// the Ready notification.
 				this._packageManager.onRuntimeReady().catch((error) => {
 					LOGGER.warn(`Failed to initialize Julia package helpers: ${error}`);
 				});
 				this._loadReviseIfEnabled();
 			}
+			this._stateEmitter.fire(state);
 		});
 
 		this._kernel.onDidEndSession((exit: positron.LanguageRuntimeExit) => {

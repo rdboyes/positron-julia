@@ -85,10 +85,10 @@ function _positron_install_packages(specs::Vector{String})
     package_specs = Pkg.PackageSpec[]
     for spec in specs
         pieces = split(spec, "@"; limit=2)
-        name = strip(pieces[1])
+        name = String(strip(pieces[1]))
         isempty(name) && continue
         if length(pieces) == 2 && !isempty(strip(pieces[2]))
-            push!(package_specs, Pkg.PackageSpec(name=name, version=strip(pieces[2])))
+            push!(package_specs, Pkg.PackageSpec(name=name, version=String(strip(pieces[2]))))
         else
             push!(package_specs, Pkg.PackageSpec(name=name))
         end
