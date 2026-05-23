@@ -330,24 +330,48 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 		// for Silent executions, which leaked the raw packages JSON to the user.
 		// Redirecting stdout into a file inside Julia means the kernel emits no
 		// stream messages for these queries at all.
+		//
+		// We redirect stdout into an IOBuffer (not directly into the file) so that
+		// any background tasks spawned during the query that inherit it as their
+		// task-local stdout can safely write to it even after the query finishes —
+		// IOBuffer is always writable so there is no "writing to a closed IOStream"
+		// scenario that would trigger a MethodError inside Julia's task failure-
+		// notice printer.
+		//
+		// We also redirect stderr into a second IOBuffer (not devnull) and forward
+		// any captured stderr to the extension logger at debug level.  This keeps
+		// Pkg warnings and the "SYSTEM: caught exception … giving up" task-notice
+		// messages out of the user's console while still preserving them for
+		// troubleshooting via the Julia extension output channel.
 		const tempFile = path.join(os.tmpdir(), `positron-julia-${crypto.randomUUID()}.txt`);
+		const tempFileErr = path.join(os.tmpdir(), `positron-julia-err-${crypto.randomUUID()}.txt`);
 		const escapedPath = this._escapeJuliaStringLiteral(tempFile);
+		const escapedPathErr = this._escapeJuliaStringLiteral(tempFileErr);
 		const wrappedCode =
-			`let __positron_io = open("${escapedPath}", "w")\n` +
-			`try\n` +
-			`redirect_stdout(__positron_io) do\n` +
+			`let __positron_out = IOBuffer(), __positron_err = IOBuffer()\n` +
+			`redirect_stdout(__positron_out) do\n` +
+			`redirect_stderr(__positron_err) do\n` +
 			`${code}\n` +
 			`end\n` +
-			`finally\n` +
-			`close(__positron_io)\n` +
 			`end\n` +
+			`open("${escapedPath}", "w") do f; write(f, take!(__positron_out)); end\n` +
+			`open("${escapedPathErr}", "w") do f; write(f, take!(__positron_err)); end\n` +
+			`nothing\n` +
 			`end`;
 
 		try {
 			await this._execute(wrappedCode, mode, timeoutMs, token);
-			return await fs.promises.readFile(tempFile, 'utf-8');
+			const [stdout, stderr] = await Promise.all([
+				fs.promises.readFile(tempFile, 'utf-8'),
+				fs.promises.readFile(tempFileErr, 'utf-8').catch(() => ''),
+			]);
+			if (stderr.trim()) {
+				LOGGER.debug(`Julia package command stderr:\n${stderr.trim()}`);
+			}
+			return stdout;
 		} finally {
 			fs.promises.unlink(tempFile).catch(() => { /* ignore cleanup errors */ });
+			fs.promises.unlink(tempFileErr).catch(() => { /* ignore cleanup errors */ });
 		}
 	}
 
