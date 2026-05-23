@@ -331,32 +331,33 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 		// Redirecting stdout into a file inside Julia means the kernel emits no
 		// stream messages for these queries at all.
 		//
-		// We redirect stdout into an IOBuffer (not directly into the file) so that
-		// any background tasks spawned during the query that inherit it as their
-		// task-local stdout can safely write to it even after the query finishes —
-		// IOBuffer is always writable so there is no "writing to a closed IOStream"
-		// scenario that would trigger a MethodError inside Julia's task failure-
-		// notice printer.
-		//
-		// We also redirect stderr into a second IOBuffer (not devnull) and forward
-		// any captured stderr to the extension logger at debug level.  This keeps
-		// Pkg warnings and the "SYSTEM: caught exception … giving up" task-notice
-		// messages out of the user's console while still preserving them for
-		// troubleshooting via the Julia extension output channel.
+		// We also redirect stderr to a second temp file (not devnull) so that its
+		// content is preserved and forwarded to the extension logger rather than
+		// being silenced entirely.  Crucially, we flush but do NOT explicitly close
+		// the stderr file before the let-block exits: background tasks spawned
+		// during the query inherit it as their task-local stderr, and keeping it
+		// open means their failure-notice printing always succeeds (IOStream accepts
+		// every show method).  This prevents the "SYSTEM: caught exception of type
+		// :MethodError while trying to print a failed Task notice; giving up"
+		// message — which appears because show(IJuliaStdio, exception) can fail
+		// with MethodError for certain exception types — from reaching the user's
+		// console.  The GC finalises the file handle after the let-block scope ends.
 		const tempFile = path.join(os.tmpdir(), `positron-julia-${crypto.randomUUID()}.txt`);
 		const tempFileErr = path.join(os.tmpdir(), `positron-julia-err-${crypto.randomUUID()}.txt`);
 		const escapedPath = this._escapeJuliaStringLiteral(tempFile);
 		const escapedPathErr = this._escapeJuliaStringLiteral(tempFileErr);
 		const wrappedCode =
-			`let __positron_out = IOBuffer(), __positron_err = IOBuffer()\n` +
-			`redirect_stdout(__positron_out) do\n` +
+			`let __positron_io = open("${escapedPath}", "w"), __positron_err = open("${escapedPathErr}", "w")\n` +
+			`try\n` +
+			`redirect_stdout(__positron_io) do\n` +
 			`redirect_stderr(__positron_err) do\n` +
 			`${code}\n` +
 			`end\n` +
 			`end\n` +
-			`open("${escapedPath}", "w") do f; write(f, take!(__positron_out)); end\n` +
-			`open("${escapedPathErr}", "w") do f; write(f, take!(__positron_err)); end\n` +
-			`nothing\n` +
+			`finally\n` +
+			`close(__positron_io)\n` +
+			`flush(__positron_err)\n` +
+			`end\n` +
 			`end`;
 
 		try {
