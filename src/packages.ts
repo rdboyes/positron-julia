@@ -48,6 +48,14 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 		this._scriptPath = path.join(extensionPath, 'scripts', 'packages', 'packages.jl');
 	}
 
+	// Called when the runtime is restarting or starting (before Ready). Clears
+	// _scriptSourced so that any startup Idle messages from the new kernel
+	// don't cause getPackages() to skip re-sourcing the script and call
+	// _positron_list_packages() before the include has run.
+	notifyRuntimeRestarting(): void {
+		this._scriptSourced = false;
+	}
+
 	async onRuntimeReady(): Promise<void> {
 		this._scriptSourced = false;
 		await this.sourcePackagesScript();
