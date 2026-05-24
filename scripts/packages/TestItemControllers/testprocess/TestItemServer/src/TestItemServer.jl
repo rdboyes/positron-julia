@@ -69,7 +69,8 @@ function revise_request(::Nothing, state::TestProcessState, token)
         Revise.revise(throw=true)
         return "success"
     catch err
-        # Base.display_error(err, catch_backtrace())
+        @info "Revise.revise() failed:"
+        Base.display_error(err, catch_backtrace())
         return "failed"
     end
 end

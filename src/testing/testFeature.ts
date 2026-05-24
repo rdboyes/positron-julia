@@ -227,7 +227,7 @@ export class JuliaTestController {
 
     private connection: rpc.MessageConnection;
     private process: ChildProcessWithoutNullStreams;
-    private testRuns = new Map<string, { testRun: vscode.TestRun, testItems: Map<string, vscode.TestItem> }>();
+    private testRuns = new Map<string, { testRun: vscode.TestRun, testItems: Map<string, vscode.TestItem>, pendingItems: Set<string> }>();
     private testProcesses = new Map<string, JuliaTestProcess>();
 
     constructor(
@@ -270,6 +270,7 @@ export class JuliaTestController {
             const r = this.testRuns.get(i.testRunId);
             const item = r?.testItems.get(i.testItemId);
             if (!r || !item) { return; }
+            r.pendingItems.delete(i.testItemId);
             r.testRun.errored(item, i.messages.map(m => {
                 const msg = new vscode.TestMessage(m.message);
                 if (m.uri && m.line && m.column) {
@@ -282,6 +283,7 @@ export class JuliaTestController {
             const r = this.testRuns.get(i.testRunId);
             const item = r?.testItems.get(i.testItemId);
             if (!r || !item) { return; }
+            r.pendingItems.delete(i.testItemId);
             r.testRun.failed(item, i.messages.map(m => {
                 const msg = new vscode.TestMessage(m.message);
                 if (m.actualOutput !== null && m.expectedOutput !== null) {
@@ -296,12 +298,12 @@ export class JuliaTestController {
         this.connection.onNotification(notificationTypeTestItemPassed, i => {
             const r = this.testRuns.get(i.testRunId);
             const item = r?.testItems.get(i.testItemId);
-            if (r && item) { r.testRun.passed(item, i.duration); }
+            if (r && item) { r.pendingItems.delete(i.testItemId); r.testRun.passed(item, i.duration); }
         });
         this.connection.onNotification(notificationTypeTestItemSkipped, i => {
             const r = this.testRuns.get(i.testRunId);
             const item = r?.testItems.get(i.testItemId);
-            if (r && item) { r.testRun.skipped(item); }
+            if (r && item) { r.pendingItems.delete(i.testItemId); r.testRun.skipped(item); }
         });
         this.connection.onNotification(notificationTypeAppendOutput, i => {
             const r = this.testRuns.get(i.testRunId);
@@ -334,7 +336,18 @@ export class JuliaTestController {
             this.process = undefined;
             if (this.connection) { this.connection.dispose(); this.connection = null; }
             this._onKilled.fire();
-            for (const r of this.testRuns.values()) { r.testRun.end(); }
+            for (const r of this.testRuns.values()) {
+                if (r.pendingItems.size > 0) {
+                    const msg = new vscode.TestMessage('Test process exited unexpectedly.');
+                    for (const id of r.pendingItems) {
+                        const item = r.testItems.get(id);
+                        if (item) { r.testRun.errored(item, msg); }
+                    }
+                    r.pendingItems.clear();
+                }
+                r.testRun.end();
+            }
+            this.testRuns.clear();
             this.testFeature.testControllerTerminated();
             if (hadActiveRuns) {
                 this.outputChannel.show(true);
@@ -365,6 +378,7 @@ export class JuliaTestController {
         this.testRuns.set(testRunId, {
             testRun,
             testItems: new Map(allTests.map(t => [t.testItem.id, t.testItem])),
+            pendingItems: new Set(allTests.map(t => t.testItem.id)),
         });
 
         const params = {
@@ -404,22 +418,38 @@ export class JuliaTestController {
             await this.connection.sendNotification(notificationTypeCancelTestRun, { testRunId });
         });
 
-        const result = await this.connection.sendRequest(requestTypeCreateTestRun, params);
+        try {
+            const result = await this.connection.sendRequest(requestTypeCreateTestRun, params);
 
-        if (result.coverage && vscode.workspace.workspaceFolders) {
-            for (const file of result.coverage) {
-                const uri = vscode.Uri.parse(file.uri);
-                if (vscode.workspace.workspaceFolders.some(f => file.uri.startsWith(f.uri.toString()))) {
-                    const stmts = file.coverage
-                        .map((v, i) => v !== null ? new vscode.StatementCoverage(v, new vscode.Position(i, 0)) : null)
-                        .filter((v): v is vscode.StatementCoverage => v !== null);
-                    testRun.addCoverage(vscode.FileCoverage.fromDetails(uri, stmts));
+            if (result.coverage && vscode.workspace.workspaceFolders) {
+                for (const file of result.coverage) {
+                    const uri = vscode.Uri.parse(file.uri);
+                    if (vscode.workspace.workspaceFolders.some(f => file.uri.startsWith(f.uri.toString()))) {
+                        const stmts = file.coverage
+                            .map((v, i) => v !== null ? new vscode.StatementCoverage(v, new vscode.Position(i, 0)) : null)
+                            .filter((v): v is vscode.StatementCoverage => v !== null);
+                        testRun.addCoverage(vscode.FileCoverage.fromDetails(uri, stmts));
+                    }
                 }
             }
+        } catch (err) {
+            const r = this.testRuns.get(testRunId);
+            if (r && r.pendingItems.size > 0) {
+                const msg = new vscode.TestMessage('Test run failed. Check the Julia Test Item Controller output for details.');
+                for (const id of r.pendingItems) {
+                    const item = r.testItems.get(id);
+                    if (item) { r.testRun.errored(item, msg); }
+                }
+                r.pendingItems.clear();
+            }
+            throw err;
+        } finally {
+            const r = this.testRuns.get(testRunId);
+            if (r) {
+                r.testRun.end();
+                this.testRuns.delete(testRunId);
+            }
         }
-
-        testRun.end();
-        this.testRuns.delete(testRunId);
     }
 }
 

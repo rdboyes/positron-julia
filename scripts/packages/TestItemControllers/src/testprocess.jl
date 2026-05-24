@@ -130,6 +130,7 @@ function create_testprocess(
                     needs_restart = false
 
                     if msg.test_env_content_hash != test_env_content_hash
+                        @info "Restarting test process: env content hash changed (was $(repr(test_env_content_hash)), now $(repr(msg.test_env_content_hash)))"
                         needs_restart = true
                     else
                         res = JSONRPC.send(endpoint, TestItemServerProtocol.testserver_revise_request_type, nothing)
@@ -137,6 +138,7 @@ function create_testprocess(
                         if res=="success"
                             needs_restart = false
                         elseif res == "failed"
+                            @info "Restarting test process: Revise.revise() returned failed (see test process output for the actual error)"
                             needs_restart = true
                         else
                             error("")
@@ -232,7 +234,7 @@ function create_testprocess(
                     end
                 end
             elseif msg.event == :testprocess_activated
-                state in (:activating_env, :testrun_precompiling, :testrun_revising) || error("Invalid state transition from $state.")
+                state in (:activating_env, :testrun_precompiling, :testrun_revising, :testrun_activating) || error("Invalid state transition from $state.")
                 state = :configuring_test_run
 
                 if env.mode == "Debug"
