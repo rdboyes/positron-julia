@@ -46,6 +46,140 @@ import * as tlsp from './testLSProtocol';
 const TESTITEM_RE = /^\s*@testitem\s+"([^"]+)"/;
 const TESTITEM_RE_SQ = /^\s*@testitem\s+'([^']+)'/;
 
+// Julia keywords that each open exactly one block closed by a matching `end`.
+// `abstract` and `primitive` are included because `abstract type T end` /
+// `primitive type T N end` also consume an `end` on the same line.
+const BLOCK_OPEN_KEYWORDS = [
+    'begin', 'if', 'for', 'while', 'function', 'macro',
+    'struct', 'module', 'baremodule', 'let', 'try', 'quote', 'do',
+    'abstract', 'primitive',
+];
+// Sorted longest-first so multi-char matches are tried before shorter prefixes.
+const BLOCK_OPEN_KEYWORDS_SORTED = [...BLOCK_OPEN_KEYWORDS].sort((a, b) => b.length - a.length);
+
+/** True iff `ch` can be part of a Julia identifier (word boundary test). */
+function isIdentChar(ch: string): boolean {
+    return /[a-zA-Z0-9_!]/.test(ch);
+}
+
+/**
+ * Extracts the body of the @testitem begin...end block whose `@testitem` line
+ * is at `startLine` in `lines`.  Uses a character-level tokenizer that correctly
+ * handles strings (`"..."`, `"""..."""`), block comments (`#=...=#`), line
+ * comments (`#...`), and square-bracket depth (so `arr[1:end]` does not
+ * prematurely close the block).
+ *
+ * Returns the body text with a leading `\n` so that, after the padding
+ * `'\n'^(params.line-1)` added by TestItemServer.jl, the code lands at the
+ * correct line number in the file.
+ *
+ * Known limitation: `end` inside a string-interpolation expression
+ * (`"$(if cond ... end)"`) is counted as a block closer.  This is an
+ * accepted edge case identical to the limitation in every regex-based
+ * Julia syntax highlighter.
+ */
+function extractTestItemBody(lines: string[], startLine: number): string {
+    let blockDepth = 1;         // the `begin` on the @testitem line
+    let squareBracketDepth = 0; // `end` inside [...] is an array-index end, not a block closer
+    let inBlockComment = false;
+    let blockCommentDepth = 0;
+    let inString = false;       // inside "..."
+    let inTripleString = false; // inside """..."""
+    let inBacktick = false;     // inside `...`
+    const bodyLines: string[] = [];
+
+    for (let i = startLine + 1; i < lines.length; i++) {
+        const line = lines[i];
+        let j = 0;
+
+        while (j < line.length) {
+            // ── block comment ────────────────────────────────────────────────
+            if (inBlockComment) {
+                if (line[j] === '#' && line[j + 1] === '=') { blockCommentDepth++; j += 2; }
+                else if (line[j] === '=' && line[j + 1] === '#') {
+                    if (--blockCommentDepth === 0) inBlockComment = false;
+                    j += 2;
+                } else { j++; }
+                continue;
+            }
+            // ── triple-quoted string ─────────────────────────────────────────
+            if (inTripleString) {
+                if (line[j] === '"' && line[j + 1] === '"' && line[j + 2] === '"') { inTripleString = false; j += 3; }
+                else { j++; }
+                continue;
+            }
+            // ── regular string ───────────────────────────────────────────────
+            if (inString) {
+                if (line[j] === '\\') { j += 2; }          // escaped char
+                else if (line[j] === '"') { inString = false; j++; }
+                else { j++; }
+                continue;
+            }
+            // ── backtick command ─────────────────────────────────────────────
+            if (inBacktick) {
+                if (line[j] === '`') { inBacktick = false; j++; }
+                else { j++; }
+                continue;
+            }
+
+            // ── normal mode ──────────────────────────────────────────────────
+            const ch = line[j];
+
+            if (ch === '#') {
+                if (line[j + 1] === '=') { inBlockComment = true; blockCommentDepth = 1; j += 2; }
+                else { break; }  // line comment: skip rest of line
+            } else if (ch === '"') {
+                if (line[j + 1] === '"' && line[j + 2] === '"') { inTripleString = true; j += 3; }
+                else { inString = true; j++; }
+            } else if (ch === '`') {
+                inBacktick = true; j++;
+            } else if (ch === '[') {
+                squareBracketDepth++; j++;
+            } else if (ch === ']') {
+                if (squareBracketDepth > 0) squareBracketDepth--;
+                j++;
+            } else {
+                // Word boundary: only try keyword matching when not mid-identifier.
+                const prevOk = j === 0 || !isIdentChar(line[j - 1]);
+                if (prevOk) {
+                    // Check block-opening keywords.
+                    let matched = false;
+                    for (const kw of BLOCK_OPEN_KEYWORDS_SORTED) {
+                        if (line.startsWith(kw, j)) {
+                            const after = j + kw.length;
+                            if (after >= line.length || !isIdentChar(line[after])) {
+                                blockDepth++;
+                                j = after;
+                                matched = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!matched && line.startsWith('end', j)) {
+                        const after = j + 3;
+                        if (after >= line.length || !isIdentChar(line[after])) {
+                            if (squareBracketDepth === 0) {
+                                if (--blockDepth === 0) {
+                                    return '\n' + bodyLines.join('\n');
+                                }
+                            }
+                            j = after;
+                            matched = true;
+                        }
+                    }
+                    if (!matched) j++;
+                } else {
+                    j++;
+                }
+            }
+        }
+
+        if (blockDepth > 0) bodyLines.push(line);
+    }
+
+    return '\n' + bodyLines.join('\n');
+}
+
 function inferJuliaNumThreads(): string {
     const setting = vscode.workspace.getConfiguration('julia').get<number | string | null>('NumThreads', null);
     if (setting !== null && setting !== undefined) { return String(setting); }
@@ -57,6 +191,7 @@ interface LocalTestItemDetail {
     id: string;
     label: string;
     line: number;          // 0-based line of the @testitem declaration
+    code: string;          // body of the @testitem begin...end block
     optionDefaultImports: boolean;
     optionSetup: string[];
     optionTags: string[];
@@ -391,19 +526,20 @@ export class TestFeature implements vscode.Disposable {
             const id = `${uriKey}::${f.label}`;
             const item = this.controller.createTestItem(id, f.label, uri);
             item.range = new vscode.Range(f.line, 0, f.line, 0);
-            this.localDetails.set(item, { id, label: f.label, line: f.line, optionDefaultImports: true, optionSetup: [], optionTags: [] });
+            this.localDetails.set(item, { id, label: f.label, line: f.line, code: f.code, optionDefaultImports: true, optionSetup: [], optionTags: [] });
             return item;
         }));
     }
 
-    private _parseTestItems(text: string): { label: string, line: number }[] {
-        const results: { label: string, line: number }[] = [];
+    private _parseTestItems(text: string): { label: string, line: number, code: string }[] {
+        const results: { label: string, line: number, code: string }[] = [];
         const lines = text.split('\n');
         for (let i = 0; i < lines.length; i++) {
             const dq = TESTITEM_RE.exec(lines[i]);
-            if (dq) { results.push({ label: dq[1], line: i }); continue; }
-            const sq = TESTITEM_RE_SQ.exec(lines[i]);
-            if (sq) { results.push({ label: sq[1], line: i }); }
+            const sq = dq ? null : TESTITEM_RE_SQ.exec(lines[i]);
+            const label = dq ? dq[1] : (sq ? sq[1] : null);
+            if (label === null) { continue; }
+            results.push({ label, line: i, code: extractTestItemBody(lines, i) });
         }
         return results;
     }
