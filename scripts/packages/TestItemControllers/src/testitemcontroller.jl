@@ -6,7 +6,7 @@ mutable struct TestProcess
     # status::Symbol
 end
 
-mutable struct TestItemController{ERR_HANDLER<:Function}
+mutable struct TestItemController{ERR_HANDLER<:Union{Nothing,Function}}
     err_handler::Union{Nothing,ERR_HANDLER}
 
     msg_channel::Channel
