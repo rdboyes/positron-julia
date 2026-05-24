@@ -194,12 +194,16 @@ export class JuliaTestController {
 
         this.connection.listen();
         this.process.stderr.on('data', d => this.outputChannel.append(String(d)));
-        this.process.on('exit', () => {
+        this.process.on('exit', (code) => {
+            const hadActiveRuns = this.testRuns.size > 0;
             this.process = undefined;
             if (this.connection) { this.connection.dispose(); this.connection = null; }
             this._onKilled.fire();
             for (const r of this.testRuns.values()) { r.testRun.end(); }
             this.testFeature.testControllerTerminated();
+            if (hadActiveRuns) {
+                this.outputChannel.show(true);
+            }
         });
         this.process.on('error', err => LOGGER.error(`Julia test controller error: ${err.message}`));
         return false;
@@ -546,7 +550,14 @@ export class TestFeature implements vscode.Disposable {
 
         if (token.isCancellationRequested) { testRun.end(); return; }
 
-        await this.juliaTestController!.createTestRun(testRun, coverageMode, maxProcessCount, allTests, allSetups);
+        try {
+            await this.juliaTestController!.createTestRun(testRun, coverageMode, maxProcessCount, allTests, allSetups);
+        } catch (err) {
+            this.controllerOutputChannel.show(true);
+            vscode.window.showErrorMessage(
+                `Julia test controller exited unexpectedly. Check the "Julia Test Item Controller" output for details.`
+            );
+        }
     }
 
     private _fallbackTestEnv(uriStr: string): tlsp.GetTestEnvRequestParamsReturn {

@@ -91,8 +91,16 @@ class InlineDebugAdapterFactory implements vscode.DebugAdapterDescriptorFactory 
 					'',  // crash reporting pipe (unused in positron-julia)
 				];
 
+				const positronJuliaConfig = vscode.workspace.getConfiguration('positron.julia');
+				const envPath =
+					positronJuliaConfig.get<string>('languageServer.environmentPath') ||
+					vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+				const spawnEnv = envPath
+					? { ...process.env, JULIA_PROJECT: envPath }
+					: process.env;
+
 				LOGGER.info(`Spawning Julia debugger: ${installation.binpath} ${jlArgs.join(' ')}`);
-				const proc = spawn(installation.binpath, jlArgs, { detached: false });
+				const proc = spawn(installation.binpath, jlArgs, { detached: false, env: spawnEnv });
 				proc.on('error', (err) => {
 					server.close();
 					reject(new Error(`Failed to spawn Julia debugger: ${err.message}`));

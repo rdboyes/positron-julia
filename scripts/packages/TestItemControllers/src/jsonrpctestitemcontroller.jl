@@ -1,4 +1,4 @@
-mutable struct JSONRPCTestItemController{ERR_HANDLER<:Function}
+mutable struct JSONRPCTestItemController{ERR_HANDLER<:Union{Nothing,Function}}
     err_handler::Union{Nothing,ERR_HANDLER}
     endpoint::JSONRPC.JSONRPCEndpoint
     controller::TestItemController

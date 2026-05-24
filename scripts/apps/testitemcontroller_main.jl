@@ -23,7 +23,7 @@ try
 
     using TestItemControllers
 
-    controller = JSONRPCTestItemController(conn_in, conn_out)
+    controller = JSONRPCTestItemController(conn_in, conn_out, nothing)
     run(controller)
 catch err
     @error "Test Item Controller crashed" exception=(err, catch_backtrace())
