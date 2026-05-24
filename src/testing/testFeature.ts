@@ -216,7 +216,15 @@ export class JuliaTestController {
         allTests: { testItem: vscode.TestItem, details: LocalTestItemDetail | tlsp.TestItemDetail, testEnv: tlsp.GetTestEnvRequestParamsReturn }[],
         testSetups: { packageUri?: string, name: string, kind: string, uri: string, line: number, column: number, code: string }[]
     ) {
-        const juliaCmd = this.runtimeManager.getActiveJuliaSession()?.runtimeMetadata.runtimePath ?? '';
+        let juliaCmd = this.runtimeManager.getActiveJuliaSession()?.runtimeMetadata.runtimePath;
+        if (!juliaCmd) {
+            for await (const inst of juliaRuntimeDiscoverer()) { juliaCmd = inst.binpath; break; }
+        }
+        if (!juliaCmd) {
+            vscode.window.showErrorMessage('No Julia installation found. Cannot run tests.');
+            testRun.end();
+            return;
+        }
         const testRunId = randomUUID();
 
         this.testRuns.set(testRunId, {
