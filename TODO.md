@@ -35,11 +35,11 @@ Currently, the language server runs in a separate Julia process and doesn't have
 ### Symbol Indexing for Workspace
 LanguageServer.jl can index the workspace for better go-to-definition and find-references support. This requires proper configuration of the environment path and project detection.
 
-## Debug Adapter Protocol (DAP)
+## Debug Adapter Protocol (DAP) (RESOLVED)
 
 Julia has a debug adapter (`Debugger.jl` / `DebugAdapter.jl`) that could be integrated for breakpoint debugging support.
 
-## Workspace/Project Detection
+## Workspace/Project Detection (RESOLVED)
 
 - Detect `Project.toml` / `Manifest.toml` and activate the appropriate environment
 - Support for Julia environments in the status bar
@@ -49,7 +49,7 @@ Julia has a debug adapter (`Debugger.jl` / `DebugAdapter.jl`) that could be inte
 - Integrate `JuliaFormatter.jl` for code formatting
 - Expose as VS Code format document/selection commands
 
-## Testing
+## Testing (RESOLVED)
 
 - Integration with Julia's `Test` stdlib
 - Test discovery and execution in the Test Explorer
