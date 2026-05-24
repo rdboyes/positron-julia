@@ -231,6 +231,15 @@ export class JuliaSession implements positron.LanguageRuntimeSession, vscode.Dis
 		});
 
 		this._kernel.onDidChangeRuntimeState((state: positron.RuntimeState) => {
+			if (state === positron.RuntimeState.Restarting || state === positron.RuntimeState.Starting) {
+				// Clear _scriptSourced early so that any startup Idle messages from
+				// the new kernel don't trigger getPackages() before the script is
+				// re-sourced. Without this, the race is: startup Idle → getPackages()
+				// resumes as a microtask and sends _positron_list_packages() to the
+				// kernel, then Ready fires and sends include() — arriving in the wrong
+				// order.
+				this._packageManager.notifyRuntimeRestarting();
+			}
 			if (state === positron.RuntimeState.Ready) {
 				// Call onRuntimeReady before firing the state event so that
 				// _scriptSourced is reset and the include is submitted to the
