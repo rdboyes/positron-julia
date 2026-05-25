@@ -1252,9 +1252,9 @@ declare module 'positron' {
 		/** Publication/release date */
 		publishedDate?: string;
 		/**
-		 * Whether the package is currently attached/loaded in the session.
-		 * Distinct from "loaded" in Julia parlance, where a package can be
-		 * loaded as a transitive dependency without being attached.
+		 * Whether the package is currently attached to the runtime's search
+		 * path (e.g. R's `search()`, Python's bound names in the user namespace).
+		 * Distinct from being loaded as a transitive dependency.
 		 */
 		attached?: boolean;
 		/** Optional short description or summary shown in the Packages pane card view. */

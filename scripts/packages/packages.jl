@@ -13,6 +13,10 @@ function _positron_json_string(value::AbstractString)::String
     return "\"" * escape_string(value) * "\""
 end
 
+function _positron_string_or_empty(value)
+    return value isa AbstractString ? String(value) : ""
+end
+
 function _positron_print_json_string_array(values::Vector{String})
     print("[")
     for (index, value) in pairs(values)
@@ -46,11 +50,9 @@ function _positron_read_project_metadata(package_path::AbstractString)
         catch
             continue
         end
-        description = get(parsed, "description", "")
-        license = get(parsed, "license", "")
-        desc_value = description isa AbstractString ? String(description) : ""
-        license_value = license isa AbstractString ? String(license) : ""
-        return desc_value, license_value
+        description = _positron_string_or_empty(get(parsed, "description", ""))
+        license = _positron_string_or_empty(get(parsed, "license", ""))
+        return description, license
     end
     return "", ""
 end
