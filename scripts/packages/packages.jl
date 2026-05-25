@@ -4,6 +4,7 @@
 # ---------------------------------------------------------------------------------------------
 
 import Pkg
+import TOML
 
 function _positron_json_string(value::AbstractString)::String
     return "\"" * escape_string(value) * "\""
@@ -31,6 +32,24 @@ function _positron_print_json_packages(packages)
         print("}")
     end
     print("]")
+end
+
+function _positron_read_project_metadata(package_path::AbstractString)
+    for filename in ("Project.toml", "JuliaProject.toml")
+        project_path = joinpath(package_path, filename)
+        isfile(project_path) || continue
+        parsed = try
+            TOML.parsefile(project_path)
+        catch
+            continue
+        end
+        description = get(parsed, "description", "")
+        license = get(parsed, "license", "")
+        desc_value = description isa AbstractString ? String(description) : ""
+        license_value = license isa AbstractString ? String(license) : ""
+        return desc_value, license_value
+    end
+    return "", ""
 end
 
 function _positron_explicitly_loaded_names()
@@ -169,14 +188,22 @@ function _positron_search_packages(query::String)
     _positron_print_json_packages(packages)
 end
 
-function _positron_print_json_metadata(by_name::Dict{String,String})
+function _positron_print_json_metadata(by_name::Dict{String, Dict{String,String}})
     print("{")
     first = true
-    for (name, version) in by_name
+    for (name, fields) in by_name
+        isempty(fields) && continue
         first || print(",")
         first = false
         print(_positron_json_string(lowercase(name)), ":{")
-        print("\"latestVersion\":", _positron_json_string(version))
+        inner_first = true
+        for key in ("latestVersion", "license", "publishedDate", "description")
+            value = get(fields, key, nothing)
+            value === nothing && continue
+            inner_first || print(",")
+            inner_first = false
+            print(_positron_json_string(key), ":", _positron_json_string(value))
+        end
         print("}")
     end
     print("}")
@@ -190,7 +217,7 @@ function _positron_package_metadata(names::Vector{String})
         cleaned = strip(raw)
         isempty(cleaned) || push!(targets, lowercase(String(cleaned)))
     end
-    by_name = Dict{String,String}()
+    by_name = Dict{String, Dict{String,String}}()
 
     if isempty(targets)
         _positron_print_json_metadata(by_name)
@@ -207,17 +234,32 @@ function _positron_package_metadata(names::Vector{String})
                 "0"
             end
 
-            previous = get(by_name, entry.name, nothing)
+            fields = get!(by_name, entry.name, Dict{String,String}())
+            previous = get(fields, "latestVersion", nothing)
             if previous === nothing
-                by_name[entry.name] = version
+                fields["latestVersion"] = version
             elseif previous != version
                 try
                     if previous == "0" || VersionNumber(version) > VersionNumber(previous)
-                        by_name[entry.name] = version
+                        fields["latestVersion"] = version
                     end
                 catch
                     # Keep the existing version if parsing fails.
                 end
+            end
+        end
+    end
+
+    for package_info in values(Pkg.dependencies())
+        package_name = package_info.name
+        lowercase(package_name) in targets || continue
+        package_path = package_info.path
+        if package_path isa AbstractString && !isempty(package_path)
+            description, license = _positron_read_project_metadata(package_path)
+            if !isempty(description) || !isempty(license)
+                fields = get!(by_name, package_name, Dict{String,String}())
+                isempty(description) || (fields["description"] = description)
+                isempty(license) || (fields["license"] = license)
             end
         end
     end

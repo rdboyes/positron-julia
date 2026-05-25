@@ -276,6 +276,9 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 			if (typeof record.publishedDate === 'string' && record.publishedDate.length > 0) {
 				partial.publishedDate = record.publishedDate;
 			}
+			if (typeof record.description === 'string' && record.description.length > 0) {
+				partial.description = record.description;
+			}
 			result.set(key, partial);
 		}
 		return result;
