@@ -6,6 +6,8 @@
 import Pkg
 import TOML
 
+const _POSITRON_METADATA_FIELDS = ("latestVersion", "license", "publishedDate", "description")
+
 function _positron_json_string(value::AbstractString)::String
     return "\"" * escape_string(value) * "\""
 end
@@ -197,7 +199,7 @@ function _positron_print_json_metadata(by_name::Dict{String, Dict{String,String}
         first = false
         print(_positron_json_string(lowercase(name)), ":{")
         inner_first = true
-        for key in ("latestVersion", "license", "publishedDate", "description")
+        for key in _POSITRON_METADATA_FIELDS
             value = get(fields, key, nothing)
             value === nothing && continue
             inner_first || print(",")
