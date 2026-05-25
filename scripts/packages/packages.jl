@@ -13,6 +13,9 @@ function _positron_json_string(value::AbstractString)::String
     return "\"" * escape_string(value) * "\""
 end
 
+"""
+Safely convert a value to a String, or return an empty string for non-strings.
+"""
 function _positron_string_or_empty(value)
     return value isa AbstractString ? String(value) : ""
 end
@@ -41,6 +44,10 @@ function _positron_print_json_packages(packages)
     print("]")
 end
 
+"""
+Read description and license fields from a package's Project.toml/JuliaProject.toml.
+Returns (description, license) as strings (empty when unavailable).
+"""
 function _positron_read_project_metadata(package_path::AbstractString)
     for filename in ("Project.toml", "JuliaProject.toml")
         project_path = joinpath(package_path, filename)
