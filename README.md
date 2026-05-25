@@ -22,7 +22,8 @@ Julia language support for [Positron](https://github.com/posit-dev/positron). Ba
 - **Plots** — Julia plots are captured and displayed in Positron's Plots pane.
 - **Package Pane** — Browse and manage Julia packages directly within Positron.
 - **TestItem Compatible** - Uses the same testing system as `julia-vscode`
-- **Debugger** - Use breakpoints, inspect local and global variables, etc. 
+- **Debugger** - Use breakpoints, inspect local and global variables, etc.
+- **Formatting** — Format Document (Shift+Alt+F) and Format Selection (Ctrl+K Ctrl+F) via [JuliaFormatter.jl](https://github.com/domluna/JuliaFormatter.jl), powered by the language server. Configurable through a `.JuliaFormatter.toml` file at the workspace root.
 
 ## Requirements
 
