@@ -6,7 +6,8 @@
 import Pkg
 import TOML
 
-const _POSITRON_METADATA_FIELDS = ("latestVersion", "license", "publishedDate", "description")
+const POSITRON_METADATA_FIELDS = ("latestVersion", "license", "publishedDate", "description")
+const MetadataByName = Dict{String, Dict{String, String}}
 
 function _positron_json_string(value::AbstractString)::String
     return "\"" * escape_string(value) * "\""
@@ -190,16 +191,15 @@ function _positron_search_packages(query::String)
     _positron_print_json_packages(packages)
 end
 
-function _positron_print_json_metadata(by_name::Dict{String, Dict{String,String}})
+function _positron_print_json_metadata(by_name::MetadataByName)
     print("{")
     first = true
     for (name, fields) in by_name
-        isempty(fields) && continue
         first || print(",")
         first = false
         print(_positron_json_string(lowercase(name)), ":{")
         inner_first = true
-        for key in _POSITRON_METADATA_FIELDS
+        for key in POSITRON_METADATA_FIELDS
             value = get(fields, key, nothing)
             value === nothing && continue
             inner_first || print(",")
@@ -219,7 +219,7 @@ function _positron_package_metadata(names::Vector{String})
         cleaned = strip(raw)
         isempty(cleaned) || push!(targets, lowercase(String(cleaned)))
     end
-    by_name = Dict{String, Dict{String,String}}()
+    by_name = MetadataByName()
 
     if isempty(targets)
         _positron_print_json_metadata(by_name)
