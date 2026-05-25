@@ -6,6 +6,7 @@
 import Pkg
 import TOML
 
+# Keep deterministic field order in JSON output.
 const POSITRON_METADATA_FIELDS = ("latestVersion", "license", "publishedDate", "description")
 const MetadataByName = Dict{String, Dict{String, String}}
 
@@ -54,7 +55,8 @@ function _positron_read_project_metadata(package_path::AbstractString)
         isfile(project_path) || continue
         parsed = try
             TOML.parsefile(project_path)
-        catch
+        catch err
+            @debug "Failed to parse package metadata TOML" path=project_path exception=err
             continue
         end
         description = _positron_string_or_empty(get(parsed, "description", ""))
