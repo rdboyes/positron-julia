@@ -7,7 +7,7 @@ import Pkg
 import TOML
 
 # Keep deterministic field order in JSON output.
-const POSITRON_METADATA_FIELDS = ("latestVersion", "license", "publishedDate", "description")
+const POSITRON_METADATA_FIELDS = ("latestVersion", "license", "description")
 const MetadataByName = Dict{String, Dict{String, String}}
 
 function _positron_json_string(value::AbstractString)::String
