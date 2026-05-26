@@ -6,6 +6,10 @@
 import Pkg
 import TOML
 
+const PositronPackage = NamedTuple{
+    (:id, :name, :displayName, :version, :attached, :description),
+    Tuple{String, String, String, String, Bool, String},
+}
 """
 Canonical ordered list of metadata fields for JSON serialization.
 """
@@ -15,6 +19,7 @@ const POSITRON_METADATA_FIELDS = ("latestVersion", "license", "description")
 Map of package name to its metadata field dictionary.
 """
 const MetadataByName = Dict{String, Dict{String, String}}
+const POSITRON_DESCRIPTION_BY_PATH = Dict{String, String}()
 
 function _positron_json_string(value::AbstractString)::String
     return "\"" * escape_string(value) * "\""
@@ -25,6 +30,87 @@ Safely convert a value to a String, or return an empty string for non-strings.
 """
 function _positron_string_or_empty(value)
     return value isa AbstractString ? String(value) : ""
+end
+
+function _positron_collapse_whitespace(value::AbstractString)::String
+    return strip(replace(value, r"\s+" => " "))
+end
+
+function _positron_markdown_text(value::AbstractString)::String
+    cleaned = replace(value, r"!\[[^\]]*\]\([^)]+\)" => "")
+    cleaned = replace(cleaned, r"\[([^\]]+)\]\([^)]+\)" => s"\1")
+    cleaned = replace(cleaned, r"\[([^\]]+)\]\[[^\]]+\]" => s"\1")
+    cleaned = replace(cleaned, r"`([^`]+)`" => s"\1")
+    return _positron_collapse_whitespace(cleaned)
+end
+
+function _positron_skip_readme_line(line::AbstractString)::Bool
+    isempty(line) && return true
+    startswith(line, "#") && return true
+    startswith(line, "[!") && return true
+    startswith(line, "![") && return true
+    startswith(line, ">") && return true
+    startswith(line, "<") && return true
+    startswith(line, "|") && return true
+    startswith(line, "- ") && return true
+    startswith(line, "* ") && return true
+    occursin(r"\bDOI\b", line) && return true
+    occursin(r"^\[[^\]]+\]:", line) && return true
+    occursin(r"^\[[^\]]+\]\([^)]+\)$", line) && return true
+    occursin(r"^=+$", line) && return true
+    occursin(r"^-+$", line) && return true
+    return false
+end
+
+function _positron_read_readme_description(package_path::AbstractString, seen::Set{String}=Set{String}())::String
+    for filename in ("README.md", "Readme.md", "readme.md", "README", "README.markdown")
+        readme_path = joinpath(package_path, filename)
+        isfile(readme_path) || continue
+        readme_path in seen && continue
+        push!(seen, readme_path)
+
+        lines = try
+            readlines(readme_path)
+        catch
+            continue
+        end
+
+        paragraph = String[]
+        in_fence = false
+        for raw in Iterators.take(lines, 160)
+            line = strip(raw)
+            if startswith(line, "```") || startswith(line, "~~~")
+                in_fence = !in_fence
+                continue
+            end
+            in_fence && continue
+
+            if isempty(line)
+                isempty(paragraph) || break
+                continue
+            end
+
+            if isempty(paragraph) && occursin(r"^[A-Za-z0-9_./-]+\.md$", line)
+                nested = joinpath(package_path, line)
+                if isfile(nested)
+                    nested_description = _positron_read_readme_description(dirname(nested), seen)
+                    isempty(nested_description) || return nested_description
+                end
+            end
+
+            if _positron_skip_readme_line(line)
+                isempty(paragraph) || break
+                continue
+            end
+
+            text = _positron_markdown_text(line)
+            isempty(text) || push!(paragraph, text)
+        end
+
+        description = _positron_collapse_whitespace(join(paragraph, " "))
+        isempty(description) || return description
+    end
+    return ""
 end
 
 function _positron_print_json_string_array(values::Vector{String})
@@ -46,6 +132,9 @@ function _positron_print_json_packages(packages)
         print("\"displayName\":", _positron_json_string(package.displayName), ",")
         print("\"version\":", _positron_json_string(package.version), ",")
         print("\"attached\":", package.attached ? "true" : "false")
+        if !isempty(package.description)
+            print(",\"description\":", _positron_json_string(package.description))
+        end
         print("}")
     end
     print("]")
@@ -70,6 +159,26 @@ function _positron_read_project_metadata(package_path::AbstractString)
         return description, license
     end
     return "", ""
+end
+
+function _positron_read_package_description(package_path)
+    package_path isa AbstractString || return ""
+    isempty(package_path) && return ""
+    return get!(POSITRON_DESCRIPTION_BY_PATH, package_path) do
+        description, _ = _positron_read_project_metadata(package_path)
+        isempty(description) ? _positron_read_readme_description(package_path) : description
+    end
+end
+
+function _positron_package_source_path(package_info)::String
+    for field in (:path, :source)
+        hasproperty(package_info, field) || continue
+        value = getproperty(package_info, field)
+        if value isa AbstractString && !isempty(value)
+            return String(value)
+        end
+    end
+    return ""
 end
 
 function _positron_explicitly_loaded_names()
@@ -101,19 +210,21 @@ end
 
 function _positron_list_packages(direct_only::Bool=true)
     explicitly_loaded = _positron_explicitly_loaded_names()
-    packages = NamedTuple{(:id, :name, :displayName, :version, :attached), Tuple{String,String,String,String,Bool}}[]
+    packages = PositronPackage[]
     for package_info in values(Pkg.dependencies())
         if direct_only && !package_info.is_direct_dep
             continue
         end
         name = package_info.name
         version = string(package_info.version)
+        description = _positron_read_package_description(_positron_package_source_path(package_info))
         push!(packages, (
             id = "$(name)-$(version)",
             name = name,
             displayName = name,
             version = version,
             attached = name in explicitly_loaded,
+            description = description,
         ))
     end
     sort!(packages, by = package -> lowercase(package.name))
@@ -162,7 +273,7 @@ end
 function _positron_search_packages(query::String)
     query = lowercase(strip(query))
     if isempty(query)
-        _positron_print_json_packages(NamedTuple{(:id, :name, :displayName, :version, :attached), Tuple{String,String,String,String,Bool}}[])
+        _positron_print_json_packages(PositronPackage[])
         return
     end
 
@@ -194,7 +305,7 @@ function _positron_search_packages(query::String)
         end
     end
 
-    packages = NamedTuple{(:id, :name, :displayName, :version, :attached), Tuple{String,String,String,String,Bool}}[]
+    packages = PositronPackage[]
     for (name, version) in by_name
         push!(packages, (
             id = "$(name)-$(version)",
@@ -202,6 +313,7 @@ function _positron_search_packages(query::String)
             displayName = name,
             version = version,
             attached = false,
+            description = "",
         ))
     end
     sort!(packages, by = package -> lowercase(package.name))
@@ -272,9 +384,10 @@ function _positron_package_metadata(names::Vector{String})
     for package_info in values(Pkg.dependencies())
         package_name = package_info.name
         lowercase(package_name) in targets || continue
-        package_path = package_info.path
-        if package_path isa AbstractString && !isempty(package_path)
+        package_path = _positron_package_source_path(package_info)
+        if !isempty(package_path)
             description, license = _positron_read_project_metadata(package_path)
+            isempty(description) && (description = _positron_read_package_description(package_path))
             if !isempty(description) || !isempty(license)
                 fields = get!(by_name, package_name, Dict{String,String}())
                 isempty(description) || (fields["description"] = description)

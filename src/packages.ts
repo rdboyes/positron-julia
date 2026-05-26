@@ -242,6 +242,9 @@ export class JuliaPackageManager implements positron.LanguageRuntimePackageManag
 					displayName: typeof record.displayName === 'string' ? record.displayName : name,
 					version,
 					attached: typeof record.attached === 'boolean' ? record.attached : undefined,
+					description: typeof record.description === 'string' && record.description.length > 0
+						? record.description
+						: undefined,
 				};
 			})
 			.filter((pkg) => pkg.name.length > 0);
