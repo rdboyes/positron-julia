@@ -1245,11 +1245,20 @@ declare module 'positron' {
 		name: string;
 		displayName: string;
 		version: string;
+		/** License information */
 		license?: string;
+		/** Latest available version from repository */
 		latestVersion?: string;
+		/** Publication/release date */
 		publishedDate?: string;
-		/** Whether the package is currently attached/loaded in the session. */
+		/**
+		 * Whether the package is currently attached to the runtime's search
+		 * path (e.g. R's `search()`, Python's bound names in the user namespace).
+		 * Distinct from being loaded as a transitive dependency.
+		 */
 		attached?: boolean;
+		/** Optional short description or summary shown in the Packages pane card view. */
+		description?: string;
 	}
 
 	/**
@@ -1272,6 +1281,14 @@ declare module 'positron' {
 		updateAllPackages(token?: vscode.CancellationToken): Thenable<void>;
 		searchPackages(query: string, token?: vscode.CancellationToken): Thenable<LanguageRuntimePackage[]>;
 		searchPackageVersions(name: string, token?: vscode.CancellationToken): Thenable<string[]>;
+		/**
+		 * Fetch additional metadata for packages from external sources (or local files).
+		 * This is called separately from getPackages() to allow the UI to display
+		 * the basic package list quickly while metadata loads in the background.
+		 * @param packageNames Array of package names to fetch metadata for
+		 * @param token Optional cancellation token
+		 * @returns Map of package name (lowercase) to partial package metadata
+		 */
 		getPackageMetadata?(
 			packageNames: string[],
 			token?: vscode.CancellationToken,
