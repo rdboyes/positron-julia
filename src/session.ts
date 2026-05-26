@@ -105,7 +105,7 @@ export class JuliaSession
 
     return [
       `${normal}               ${green}_${normal}`,
-      `   ${blue}_${normal}       ${red}_${red} ${green}_${green}(_)${magenta}_${normal}     |  Documentation: https://docs.julialang.org`,
+      `   ${blue}_${normal}       ${normal}_${normal} ${red}_${green}(_)${magenta}_${normal}     |  Documentation: https://docs.julialang.org`,
       `  ${blue}(_)${normal}     | ${red}(_)${normal} ${magenta}(_)${normal}    |`,
       `${normal}   _ _   _| |_  __ _   |  Type "?" for help, "]?" for Pkg help.`,
       `${normal}  | | | | | | |/ _\` |  |`,
