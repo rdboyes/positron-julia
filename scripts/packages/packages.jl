@@ -6,7 +6,7 @@
 import Pkg
 import TOML
 
-const PositronPackage = NamedTuple{
+const _PositronPackage = NamedTuple{
     (:id, :name, :displayName, :version, :attached, :description),
     Tuple{String, String, String, String, Bool, String},
 }
@@ -14,12 +14,12 @@ const PositronPackage = NamedTuple{
 Canonical ordered list of metadata fields for JSON serialization.
 """
 # Keep deterministic field order in JSON output.
-const POSITRON_METADATA_FIELDS = ("latestVersion", "license", "description")
+const _POSITRON_METADATA_FIELDS = ("latestVersion", "license", "description")
 """
 Map of package name to its metadata field dictionary.
 """
-const MetadataByName = Dict{String, Dict{String, String}}
-const POSITRON_DESCRIPTION_BY_PATH = Dict{String, String}()
+const _MetadataByName = Dict{String, Dict{String, String}}
+const _POSITRON_DESCRIPTION_BY_PATH = Dict{String, String}()
 
 function _positron_json_string(value::AbstractString)::String
     return "\"" * escape_string(value) * "\""
@@ -164,7 +164,7 @@ end
 function _positron_read_package_description(package_path)
     package_path isa AbstractString || return ""
     isempty(package_path) && return ""
-    return get!(POSITRON_DESCRIPTION_BY_PATH, package_path) do
+    return get!(_POSITRON_DESCRIPTION_BY_PATH, package_path) do
         description, _ = _positron_read_project_metadata(package_path)
         isempty(description) ? _positron_read_readme_description(package_path) : description
     end
@@ -210,7 +210,7 @@ end
 
 function _positron_list_packages(direct_only::Bool=true)
     explicitly_loaded = _positron_explicitly_loaded_names()
-    packages = PositronPackage[]
+    packages = _PositronPackage[]
     for package_info in values(Pkg.dependencies())
         if direct_only && !package_info.is_direct_dep
             continue
@@ -273,7 +273,7 @@ end
 function _positron_search_packages(query::String)
     query = lowercase(strip(query))
     if isempty(query)
-        _positron_print_json_packages(PositronPackage[])
+        _positron_print_json_packages(_PositronPackage[])
         return
     end
 
@@ -305,7 +305,7 @@ function _positron_search_packages(query::String)
         end
     end
 
-    packages = PositronPackage[]
+    packages = _PositronPackage[]
     for (name, version) in by_name
         push!(packages, (
             id = "$(name)-$(version)",
@@ -320,7 +320,7 @@ function _positron_search_packages(query::String)
     _positron_print_json_packages(packages)
 end
 
-function _positron_print_json_metadata(by_name::MetadataByName)
+function _positron_print_json_metadata(by_name::_MetadataByName)
     print("{")
     first = true
     for (name, fields) in by_name
@@ -328,7 +328,7 @@ function _positron_print_json_metadata(by_name::MetadataByName)
         first = false
         print(_positron_json_string(lowercase(name)), ":{")
         inner_first = true
-        for key in POSITRON_METADATA_FIELDS
+        for key in _POSITRON_METADATA_FIELDS
             value = get(fields, key, nothing)
             value === nothing && continue
             inner_first || print(",")
@@ -348,7 +348,7 @@ function _positron_package_metadata(names::Vector{String})
         cleaned = strip(raw)
         isempty(cleaned) || push!(targets, lowercase(String(cleaned)))
     end
-    by_name = MetadataByName()
+    by_name = _MetadataByName()
 
     if isempty(targets)
         _positron_print_json_metadata(by_name)
