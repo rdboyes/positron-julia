@@ -48,7 +48,9 @@ Connecting the LS to the running session would improve completion quality for va
 
 ## Formatting
 
-**Status**: Not implemented
+**Status**: Implemented
 
-- Integrate `JuliaFormatter.jl` as a format provider
-- Expose as VS Code "Format Document" and "Format Selection" commands
+- Native code formatting is fully supported out-of-the-box via the Julia Language Server (`LanguageServer.jl`), which includes `JuliaFormatter.jl` as a core dependency.
+- Enables standard VS Code / Positron commands **Format Document** (`Shift+Alt+F` / `Option+Shift+F`) and **Format Selection** (`Ctrl+K Ctrl+F`) natively without needing a separate process spawning extension.
+- Automatically respects workspace-local `.JuliaFormatter.toml` configuration files.
+
