@@ -1,13 +1,13 @@
+<p align="center">
+<img width="150" height="150" alt="julia-positron" src="https://github.com/user-attachments/assets/f1820046-7703-441e-8f3c-8b1c57be0f0b" />
+</p>
+
 # Julia for Positron
 
 Julia language support for [Positron](https://github.com/posit-dev/positron). Based on [julia-vscode](https://code.visualstudio.com/docs/languages/julia), [Julia for Positron](https://github.com/ntluong95/positron-julia), and @wesm's closed PR on the positron repo.
 
 > [!IMPORTANT]
 > From version 0.1.3, the extension will be maintained under [TidierOrg](https://github.com/TidierOrg).
-
-<p align="center">
-  <img src="resources/branding/julia-logo.png" alt="Julia Logo" width="240">
-</p>
 
 ## Features
 
