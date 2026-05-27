@@ -123,3 +123,38 @@ export function registerCompletionProvider(context: vscode.ExtensionContext): vs
 
 	return disposable;
 }
+
+/**
+ * Queries the active Julia runtime session silently for completions.
+ * Used to bridge Language Server completions with the REPL session.
+ */
+export async function getRuntimeCompletions(query: string): Promise<string[]> {
+	if (!query) {
+		return [];
+	}
+
+	try {
+		// Find an active Julia session that supports callMethod
+		const sessions = await positron.runtime.getActiveSessions();
+		const juliaSession = sessions.find(
+			s => s.runtimeMetadata.languageId === 'julia' && typeof s.callMethod === 'function'
+		);
+		if (!juliaSession) {
+			return [];
+		}
+
+		// Use Jupyter complete_request via callMethod — fully silent,
+		// does not pollute console or history.
+		const reply = await juliaSession.callMethod!(
+			'complete_request',
+			query,
+			query.length
+		);
+
+		return reply?.matches ?? [];
+	} catch (err) {
+		LOGGER.debug(`Runtime completion error in getRuntimeCompletions: ${err}`);
+		return [];
+	}
+}
+

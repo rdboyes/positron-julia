@@ -11,7 +11,7 @@ import { registerCommands } from './commands';
 import { PositronSupervisorApi } from './positron-supervisor';
 import { JuliaLanguageClient } from './lsp';
 import { juliaRuntimeDiscoverer } from './provider';
-import { registerCompletionProvider } from './completions';
+import { registerCompletionProvider, getRuntimeCompletions } from './completions';
 import { registerStatementRangeProvider } from './statement-range';
 import { registerSemanticTokensProvider } from './semantic-highlighting';
 import { registerHelpTopicProvider } from './help';
@@ -256,6 +256,22 @@ async function doStartLanguageServer(
 					_testFeature!.publishTestsHandler(params);
 				});
 			}
+
+			LOGGER.info('Registering repl/getcompletions and repl/getCompletions request handlers');
+			const handleGetCompletions = async (params: any) => {
+				LOGGER.debug(`LSP repl completion request received with params: ${JSON.stringify(params)}`);
+				let query = '';
+				if (typeof params === 'string') {
+					query = params;
+				} else if (params && typeof params === 'object') {
+					query = params.query ?? params.text ?? params.line ?? params.code ?? params.word ?? '';
+				}
+				const completions = await getRuntimeCompletions(query);
+				return completions;
+			};
+
+			client.onRequest('repl/getcompletions', handleGetCompletions);
+			client.onRequest('repl/getCompletions', handleGetCompletions);
 		});
 		LOGGER.info('Julia Language Server started successfully');
 	} catch (error) {
