@@ -30,7 +30,7 @@
     "Data Science"
   ],
   "main": "./out/extension.js",
-  "icon": "./resources/branding/julia-logo.png",
+  "icon": "./resources/branding/julia-positron.png",
   "activationEvents": [
     "onLanguageRuntime:julia",
     "onLanguage:julia",
