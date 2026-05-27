@@ -1,5 +1,6 @@
 <p align="center">
-<img width="150" height="150" alt="julia-positron" src="https://github.com/user-attachments/assets/f1820046-7703-441e-8f3c-8b1c57be0f0b" />
+<img width="214" height="251" alt="julia-positron" src="https://github.com/user-attachments/assets/1d38f542-3c41-4b94-9189-31d1e7a8246b" />
+
 </p>
 
 # Julia for Positron
