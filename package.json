@@ -2,7 +2,7 @@
   "name": "positron-julia",
   "displayName": "Julia for Positron",
   "description": "Julia language support for Positron IDE",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "ntluong95",
   "author": "TidierOrg, rdboyes, ntluong95",
   "contributors": [
