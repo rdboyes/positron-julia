@@ -29,6 +29,7 @@ export class JuliaLanguageClient implements vscode.Disposable {
 	private _extensionPath: string;
 	private _outputChannel: vscode.OutputChannel;
 	private _isStopping: boolean = false;
+	private _onClientCreated: ((client: LanguageClient) => void) | undefined;
 
 	constructor(extensionPath: string) {
 		this._extensionPath = extensionPath;
@@ -230,6 +231,11 @@ export class JuliaLanguageClient implements vscode.Disposable {
 		}
 
 		this._installation = installation;
+		// Persist so restart() and refreshEnvironmentForFile() re-use it without
+		// requiring callers to pass it again on every implicit restart.
+		if (onClientCreated) {
+			this._onClientCreated = onClientCreated;
+		}
 
 		// Check if LanguageServer.jl is installed for this Julia version, install if not
 		if (!this.isLanguageServerInstalled(installation)) {
@@ -358,8 +364,8 @@ export class JuliaLanguageClient implements vscode.Disposable {
 
 		// Allow callers to register notification/request handlers before the client
 		// starts, so no messages are missed during the initialization phase.
-		if (onClientCreated) {
-			onClientCreated(this._client);
+		if (this._onClientCreated) {
+			this._onClientCreated(this._client);
 		}
 
 		// Apply trace level from configuration
