@@ -54,3 +54,19 @@ Connecting the LS to the running session would improve completion quality for va
 - Enables standard VS Code / Positron commands **Format Document** (`Shift+Alt+F` / `Option+Shift+F`) and **Format Selection** (`Ctrl+K Ctrl+F`) natively without needing a separate process spawning extension.
 - Automatically respects workspace-local `.JuliaFormatter.toml` configuration files.
 
+## TODO
+The extension currently provides:
+
+- syntax highlighting
+- snippets: latex and user-shared snippets
+- Julia specific commands
+- integrated Julia REPL
+- code completion
+- hover help
+- a linter
+- code navigation
+- tasks for running tests, builds, benchmarks and build documentation
+- a debugger
+- a plot gallery
+- a grid viewer for tabular data
+- integrated support for Weave.jl
