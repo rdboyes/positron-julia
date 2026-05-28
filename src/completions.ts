@@ -123,3 +123,52 @@ export function registerCompletionProvider(context: vscode.ExtensionContext): vs
 
 	return disposable;
 }
+
+export interface ReplCompletionResult {
+	matches: string[];
+	cursor_start: number;
+	cursor_end: number;
+}
+
+/**
+ * Queries the active Julia runtime session silently for completions.
+ * Used to bridge Language Server completions with the REPL session.
+ * Returns null when no session is available or the query is empty.
+ */
+export async function getRuntimeCompletions(query: string): Promise<ReplCompletionResult | null> {
+	if (!query) {
+		return null;
+	}
+
+	try {
+		// Find an active Julia session that supports callMethod
+		const sessions = await positron.runtime.getActiveSessions();
+		const juliaSession = sessions.find(
+			s => s.runtimeMetadata.languageId === 'julia' && typeof s.callMethod === 'function'
+		);
+		if (!juliaSession) {
+			return null;
+		}
+
+		// Use Jupyter complete_request via callMethod — fully silent,
+		// does not pollute console or history.
+		// query is the text up to the cursor, so query.length is the cursor
+		// offset within that text — equivalent to position.character in the
+		// VSCode provider and correct for the Jupyter complete_request protocol.
+		const reply = await juliaSession.callMethod!(
+			'complete_request',
+			query,
+			query.length
+		);
+
+		const matches: string[] = Array.isArray(reply?.matches) ? reply.matches : [];
+		const cursor_start: number = reply?.cursor_start ?? 0;
+		const cursor_end: number = reply?.cursor_end ?? query.length;
+
+		return { matches, cursor_start, cursor_end };
+	} catch (err) {
+		LOGGER.debug(`Runtime completion error in getRuntimeCompletions: ${err}`);
+		return null;
+	}
+}
+
