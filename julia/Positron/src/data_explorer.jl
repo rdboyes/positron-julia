@@ -131,6 +131,8 @@ function handle_data_explorer_msg(instance::DataExplorerInstance, msg::Dict)
             handle_get_column_profiles(instance, request)
         elseif request isa DataExplorerExportDataSelectionParams
             handle_export_data_selection(instance, request)
+        elseif request isa DataExplorerConvertToCodeParams
+            handle_convert_to_code(instance, request)
         end
     end
 end
@@ -454,6 +456,19 @@ function handle_export_data_selection(
     result = ExportedData(data_str, request.format)
     send_result(instance.comm, result)
 end
+
+"""
+Handle convert_to_code request.
+"""
+function handle_convert_to_code(
+    instance::DataExplorerInstance,
+    request::DataExplorerConvertToCodeParams,
+)
+    code = convert_to_code(instance.data, instance.display_name, request)
+    result = ConvertedCode(code)
+    send_result(instance.comm, result)
+end
+
 
 # -------------------------------------------------------------------------
 # Data Access Functions (to be specialized for different table types)
@@ -1493,6 +1508,283 @@ function export_selection(
 end
 
 """
+Format a value for code output.
+"""
+function format_code_val(val::String, type_display::ColumnDisplayType)::String
+    if type_display in (ColumnDisplayType_Integer, ColumnDisplayType_Floating)
+        # Try to parse as number to verify it is valid numeric literal
+        parsed = tryparse(Float64, val)
+        if parsed !== nothing
+            return val
+        end
+    elseif type_display == ColumnDisplayType_Boolean
+        if lowercase(val) == "true"
+            return "true"
+        elseif lowercase(val) == "false"
+            return "false"
+        end
+    end
+    # Default is a quoted string
+    escaped = escape_string(val)
+    return "\"$escaped\""
+end
+
+"""
+Convert a RowFilter to a TidierData condition string.
+"""
+function to_tidier_cond(f::RowFilter)::String
+    col = f.column_schema.column_name
+    type_display = f.column_schema.type_display
+    
+    if f.filter_type == RowFilterType_IsNull
+        return "ismissing($col)"
+    elseif f.filter_type == RowFilterType_NotNull
+        return "!ismissing($col)"
+    elseif f.filter_type == RowFilterType_IsEmpty
+        return "ismissing($col) || $col == \"\""
+    elseif f.filter_type == RowFilterType_NotEmpty
+        return "!ismissing($col) && $col != \"\""
+    elseif f.filter_type == RowFilterType_IsTrue
+        return "$col == true"
+    elseif f.filter_type == RowFilterType_IsFalse
+        return "$col == false"
+    end
+    
+    params = f.params
+    if params === nothing
+        return "true"
+    end
+    
+    if params isa FilterComparison
+        # Map op
+        op_str = string(params.op)
+        if op_str == "="
+            op_str = "=="
+        end
+        val_str = format_code_val(params.value, type_display)
+        return "$col $op_str $val_str"
+    elseif params isa FilterBetween
+        left = format_code_val(params.left_value, type_display)
+        right = format_code_val(params.right_value, type_display)
+        if f.filter_type == RowFilterType_NotBetween
+            return "$col < $left || $col > $right"
+        else
+            return "$col >= $left && $col <= $right"
+        end
+    elseif params isa FilterTextSearch
+        term_escaped = escape_string(params.term)
+        term_str = "\"$term_escaped\""
+        if params.search_type == TextSearchType_Contains
+            if params.case_sensitive
+                return "occursin($term_str, $col)"
+            else
+                return "occursin(lowercase($term_str), lowercase($col))"
+            end
+        elseif params.search_type == TextSearchType_NotContains
+            if params.case_sensitive
+                return "!occursin($term_str, $col)"
+            else
+                return "!occursin(lowercase($term_str), lowercase($col))"
+            end
+        elseif params.search_type == TextSearchType_StartsWith
+            if params.case_sensitive
+                return "startswith($col, $term_str)"
+            else
+                return "startswith(lowercase($col), lowercase($term_str))"
+            end
+        elseif params.search_type == TextSearchType_EndsWith
+            if params.case_sensitive
+                return "endswith($col, $term_str)"
+            else
+                return "endswith(lowercase($col), lowercase($term_str))"
+            end
+        elseif params.search_type == TextSearchType_RegexMatch
+            flags = params.case_sensitive ? "" : "i"
+            return "occursin(Regex($term_str, \"$flags\"), $col)"
+        end
+    elseif params isa FilterSetMembership
+        items = [format_code_val(v, type_display) for v in params.values]
+        items_str = "[" * join(items, ", ") * "]"
+        if params.inclusive
+            return "$col in $items_str"
+        else
+            return "!($col in $items_str)"
+        end
+    end
+    
+    return "true"
+end
+
+"""
+Convert active filters to reproducible TidierData.jl code.
+"""
+function convert_to_code_tidier(
+    data::Any,
+    display_name::String,
+    request::DataExplorerConvertToCodeParams,
+)::Vector{String}
+    code_lines = String[]
+    push!(code_lines, "using TidierData")
+    push!(code_lines, "")
+    
+    chain_parts = String[]
+    
+    # 1. Row Filters
+    if !isempty(request.row_filters)
+        filter_expr = ""
+        for (i, f) in enumerate(request.row_filters)
+            cond = to_tidier_cond(f)
+            if i == 1
+                filter_expr = cond
+            else
+                op = f.condition == RowFilterCondition_Or ? "||" : "&&"
+                filter_expr = "$filter_expr $op $cond"
+            end
+        end
+        push!(chain_parts, "    @filter($filter_expr)")
+    end
+    
+    # 2. Column Selections (using column_filters)
+    if !isempty(request.column_filters)
+        ncols = get_num_columns(data)
+        matched_cols = String[]
+        for col_idx in 1:ncols
+            schema = get_column_schema(data, col_idx)
+            if matches_column_filters(schema, request.column_filters)
+                push!(matched_cols, schema.column_name)
+            end
+        end
+        if length(matched_cols) < ncols
+            select_args = join(matched_cols, ", ")
+            push!(chain_parts, "    @select($select_args)")
+        end
+    end
+    
+    # 3. Sort Keys
+    if !isempty(request.sort_keys)
+        arrange_args = String[]
+        for key in request.sort_keys
+            col_name = get_column_name(data, key.column_index + 1)
+            if key.ascending
+                push!(arrange_args, col_name)
+            else
+                push!(arrange_args, "desc($col_name)")
+            end
+        end
+        arrange_str = join(arrange_args, ", ")
+        push!(chain_parts, "    @arrange($arrange_str)")
+    end
+    
+    # Assemble the chain code
+    if isempty(chain_parts)
+        push!(code_lines, display_name)
+    else
+        push!(code_lines, "result = @chain $display_name begin")
+        append!(code_lines, chain_parts)
+        push!(code_lines, "end")
+    end
+    
+    return code_lines
+end
+
+"""
+Convert active filters to reproducible DataFrames.jl code.
+"""
+function convert_to_code_dataframes(
+    data::Any,
+    display_name::String,
+    request::DataExplorerConvertToCodeParams,
+)::Vector{String}
+    code_lines = String[]
+    push!(code_lines, "using DataFrames")
+    push!(code_lines, "")
+    
+    pipe_parts = String[]
+    push!(pipe_parts, display_name)
+    
+    # 1. Row Filters
+    if !isempty(request.row_filters)
+        cols_needed = unique([Symbol(f.column_schema.column_name) for f in request.row_filters])
+        cols_arg = length(cols_needed) == 1 ? ":$(cols_needed[1])" : "[" * join([":$c" for c in cols_needed], ", ") * "]"
+        lambda_args = join([string(c) for c in cols_needed], ", ")
+        if length(cols_needed) > 1
+            lambda_args = "($lambda_args)"
+        end
+        filter_expr = ""
+        for (i, f) in enumerate(request.row_filters)
+            cond = to_tidier_cond(f)
+            if i == 1
+                filter_expr = cond
+            else
+                op = f.condition == RowFilterCondition_Or ? "||" : "&&"
+                filter_expr = "$filter_expr $op $cond"
+            end
+        end
+        push!(pipe_parts, "    x -> subset(x, $cols_arg => ByRow($lambda_args -> $filter_expr))")
+    end
+    
+    # 2. Column Selections (using column_filters)
+    if !isempty(request.column_filters)
+        ncols = get_num_columns(data)
+        matched_cols = String[]
+        for col_idx in 1:ncols
+            schema = get_column_schema(data, col_idx)
+            if matches_column_filters(schema, request.column_filters)
+                push!(matched_cols, schema.column_name)
+            end
+        end
+        if length(matched_cols) < ncols
+            select_args = "[" * join([":$c" for c in matched_cols], ", ") * "]"
+            push!(pipe_parts, "    x -> select(x, $select_args)")
+        end
+    end
+    
+    # 3. Sort Keys
+    if !isempty(request.sort_keys)
+        sort_cols = String[]
+        sort_revs = String[]
+        for key in request.sort_keys
+            col_name = get_column_name(data, key.column_index + 1)
+            push!(sort_cols, ":$col_name")
+            push!(sort_revs, string(!key.ascending))
+        end
+        cols_arg = length(sort_cols) == 1 ? sort_cols[1] : "[" * join(sort_cols, ", ") * "]"
+        rev_arg = length(sort_revs) == 1 ? "rev=$(sort_revs[1])" : "rev=[" * join(sort_revs, ", ") * "]"
+        push!(pipe_parts, "    x -> sort(x, $cols_arg, $rev_arg)")
+    end
+    
+    if length(pipe_parts) == 1
+        push!(code_lines, pipe_parts[1])
+    else
+        push!(code_lines, "result = " * pipe_parts[1] * " |>")
+        for i in 2:(length(pipe_parts) - 1)
+            push!(code_lines, pipe_parts[i] * " |>")
+        end
+        push!(code_lines, pipe_parts[end])
+    end
+    
+    return code_lines
+end
+
+"""
+Generate reproducible Julia code from the current Data Explorer state.
+"""
+function convert_to_code(
+    data::Any,
+    display_name::String,
+    request::DataExplorerConvertToCodeParams,
+)::Vector{String}
+    syntax = request.code_syntax_name.code_syntax_name
+    if lowercase(syntax) == "tidierdata"
+        return convert_to_code_tidier(data, display_name, request)
+    else
+        # Default to DataFrames
+        return convert_to_code_dataframes(data, display_name, request)
+    end
+end
+
+
+"""
 Get supported features for the data explorer.
 """
 function get_supported_features()::SupportedFeatures
@@ -1560,7 +1852,13 @@ function get_supported_features()::SupportedFeatures
             SupportStatus_Supported,
             [ExportFormat_Csv, ExportFormat_Tsv],
         ),
-        ConvertToCodeFeatures(SupportStatus_Unsupported, nothing),
+        ConvertToCodeFeatures(
+            SupportStatus_Supported,
+            [
+                CodeSyntaxName("DataFrames"),
+                CodeSyntaxName("TidierData"),
+            ],
+        ),
     )
 end
 

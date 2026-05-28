@@ -1329,6 +1329,41 @@ function parse_column_sort_key(data::Dict)::ColumnSortKey
 end
 
 """
+Parse FilterMatchDataTypes from a Dict.
+"""
+function parse_filter_match_data_types(data::Dict)::FilterMatchDataTypes
+    types_list = get(data, "display_types", [])
+    display_types = [STRING_TO_COLUMNDISPLAYTYPE[t] for t in types_list]
+    return FilterMatchDataTypes(display_types)
+end
+
+"""
+Parse ColumnFilter from a Dict.
+"""
+function parse_column_filter(data::Dict)::ColumnFilter
+    filter_type_str = get(data, "filter_type", "text_search")
+    filter_type = STRING_TO_COLUMNFILTERTYPE[filter_type_str]
+
+    params_data = get(data, "params", Dict())
+    params = if filter_type == ColumnFilterType_TextSearch
+        parse_filter_text_search(params_data)
+    elseif filter_type == ColumnFilterType_MatchDataTypes
+        parse_filter_match_data_types(params_data)
+    else
+        error("Unknown ColumnFilterType: $filter_type")
+    end
+
+    return ColumnFilter(filter_type, params)
+end
+
+"""
+Parse CodeSyntaxName from a Dict.
+"""
+function parse_code_syntax_name(data::Dict)::CodeSyntaxName
+    return CodeSyntaxName(get(data, "code_syntax_name", ""))
+end
+
+"""
 Parse a backend request for the DataExplorer comm.
 """
 function parse_data_explorer_request(data::Dict)
@@ -1367,11 +1402,19 @@ function parse_data_explorer_request(data::Dict)
             STRING_TO_EXPORTFORMAT[format_str],
         )
     elseif method == "convert_to_code"
+        col_filters_dicts = get(params, "column_filters", [])
+        col_filters = [parse_column_filter(f) for f in col_filters_dicts]
+        row_filters_dicts = get(params, "row_filters", [])
+        row_filters = [parse_row_filter(f) for f in row_filters_dicts]
+        sort_keys_dicts = get(params, "sort_keys", [])
+        sort_keys = [parse_column_sort_key(k) for k in sort_keys_dicts]
+        code_syntax_name_dict = get(params, "code_syntax_name", Dict())
+        code_syntax_name = parse_code_syntax_name(code_syntax_name_dict)
         return DataExplorerConvertToCodeParams(
-            get(params, "column_filters", []),
-            get(params, "row_filters", []),
-            get(params, "sort_keys", []),
-            get(params, "code_syntax_name", Dict()),
+            col_filters,
+            row_filters,
+            sort_keys,
+            code_syntax_name,
         )
     elseif method == "suggest_code_syntax"
         return nothing
