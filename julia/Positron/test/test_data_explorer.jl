@@ -2152,4 +2152,94 @@ end
         @test result.sort_keys[2].column_index == 2
         @test result.sort_keys[2].ascending == false
     end
+
+    @testset "parse_data_explorer_request - convert_to_code" begin
+        data = Dict(
+            "method" => "convert_to_code",
+            "params" => Dict(
+                "column_filters" => [
+                    Dict(
+                        "filter_type" => "text_search",
+                        "params" => Dict("search_type" => "contains", "term" => "x", "case_sensitive" => false)
+                    )
+                ],
+                "row_filters" => [
+                    Dict(
+                        "filter_id" => "f1",
+                        "filter_type" => "compare",
+                        "column_schema" => Dict(
+                            "column_name" => "age",
+                            "column_index" => 0,
+                            "type_name" => "Int64",
+                            "type_display" => "integer",
+                        ),
+                        "condition" => "and",
+                        "params" => Dict("op" => ">", "value" => "21")
+                    )
+                ],
+                "sort_keys" => [
+                    Dict("column_index" => 1, "ascending" => false)
+                ],
+                "code_syntax_name" => Dict(
+                    "code_syntax_name" => "TidierData"
+                )
+            )
+        )
+        result = Positron.parse_data_explorer_request(data)
+
+        @test result isa Positron.DataExplorerConvertToCodeParams
+        @test length(result.column_filters) == 1
+        @test result.column_filters[1].filter_type == Positron.ColumnFilterType_TextSearch
+        @test length(result.row_filters) == 1
+        @test result.row_filters[1].filter_type == Positron.RowFilterType_Compare
+        @test result.row_filters[1].params isa Positron.FilterComparison
+        @test result.row_filters[1].params.op == Positron.FilterComparisonOp_Gt
+        @test length(result.sort_keys) == 1
+        @test result.sort_keys[1].column_index == 1
+        @test result.sort_keys[1].ascending == false
+        @test result.code_syntax_name.code_syntax_name == "TidierData"
+    end
+
+    @testset "convert_to_code - TidierData and DataFrames" begin
+        df = DataFrame(age = [20, 25, 30], score = [80.5, 90.0, 95.5])
+        
+        row_filter = Positron.RowFilter(
+            "f1",
+            Positron.RowFilterType_Compare,
+            Positron.ColumnSchema("age", nothing, 0, "Int64", Positron.ColumnDisplayType_Integer, nothing, nothing, nothing, nothing, nothing, nothing),
+            Positron.RowFilterCondition_And,
+            true,
+            nothing,
+            Positron.FilterComparison(Positron.FilterComparisonOp_Gt, "21")
+        )
+        
+        sort_key = Positron.ColumnSortKey(1, false) # score descending
+        
+        request_tidier = Positron.DataExplorerConvertToCodeParams(
+            Positron.ColumnFilter[],
+            [row_filter],
+            [sort_key],
+            Positron.CodeSyntaxName("TidierData")
+        )
+        
+        code_tidier = Positron.convert_to_code(df, "my_df", request_tidier)
+        @test "using TidierData" in code_tidier
+        @test any(occursin("@filter(age > 21)", line) for line in code_tidier)
+        @test any(occursin("@arrange(desc(score))", line) for line in code_tidier)
+        @test any(occursin("result = @chain my_df begin", line) for line in code_tidier)
+
+        request_df = Positron.DataExplorerConvertToCodeParams(
+            Positron.ColumnFilter[],
+            [row_filter],
+            [sort_key],
+            Positron.CodeSyntaxName("DataFrames")
+        )
+        
+        code_df = Positron.convert_to_code(df, "my_df", request_df)
+        @test "using DataFrames" in code_df
+        @test any(occursin("subset(x, :age => ByRow(age -> age > 21))", line) for line in code_df)
+        @test any(occursin("sort(x, :score, rev=true)", line) for line in code_df)
+        @test any(occursin("result = my_df |>", line) for line in code_df)
+    end
 end
+
