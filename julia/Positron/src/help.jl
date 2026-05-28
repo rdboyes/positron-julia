@@ -189,6 +189,32 @@ function resolve_symbol(topic::String)
         # Start from Main
         current = Main
 
+        # If the top-level package is not defined in Main, check if it is installed
+        # in the environment, and if so, dynamically import it.
+        first_sym = Symbol(parts[1])
+        if !isdefined(Main, first_sym)
+            is_installed = false
+            try
+                if !isdefined(Main, :Pkg)
+                    @eval Main import Pkg
+                end
+                for dep in values(Main.Pkg.dependencies())
+                    if dep.name == parts[1]
+                        is_installed = true
+                        break
+                    end
+                end
+            catch
+            end
+
+            if is_installed
+                try
+                    @eval Main import $(first_sym)
+                catch
+                end
+            end
+        end
+
         for (i, part) in enumerate(parts)
             sym = Symbol(part)
 
