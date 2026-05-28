@@ -101,6 +101,15 @@ using JSON3
         @test Positron.resolve_symbol("Base.nonexistent") === nothing
     end
 
+    @testset "Symbol Resolution - Unimported Packages" begin
+        # UUIDs is a standard library that is installed.
+        # It should get imported and resolved successfully.
+        sym = Positron.resolve_symbol("UUIDs")
+        @test sym !== nothing
+        @test sym isa Module
+        @test isdefined(Main, :UUIDs)
+    end
+
     @testset "Fetch Documentation - Functions" begin
         # Standard functions with docs
         doc = Positron.fetch_documentation(sum)
